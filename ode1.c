@@ -47,6 +47,9 @@ static int f(sunrealtype t, N_Vector y, N_Vector ydot, void *user_data){
     return 0;
 }
 
+// opt == 0: 检查是否返回 NULL 指针
+// opt == 1: 检查返回的 int 指针的值（负数是出错）
+// opt == 2: 内存错误检查
 static int check_retval(void* returnvalue, const char* funcname, int opt)
 {
   int* retval;
@@ -136,7 +139,7 @@ int main()
     if (retval) return 1;
 
     // allocate and initialize the y vector with initial condition y(0) = 1
-    y = N_VNew_Serial(1,sunctx);
+    y = N_VNew_Serial(1,sunctx); // y(0) = 1
     if (y == NULL) return 1;
     NV_Ith_S(y,0) = 1.0; // y's 0th - y0 initial value 1.0
 
@@ -157,14 +160,15 @@ int main()
     if (retval < 0) return 1;
 
     // ADD: Set up dense linear solver
-    A = SUNDenseMatrix(NEQ, NEQ, sunctx);
+    A = SUNDenseMatrix(NEQ, NEQ, sunctx); // NEQ * NEQ dense matrix A
     if (check_retval((void*)A, "SUNDenseMatrix", 0)) return 1;
 
-    LS = SUNLinSol_Dense(y, A, sunctx);
+    LS = SUNLinSol_Dense(y, A, sunctx); // LU A * x = b Newton
     if (check_retval((void*)LS, "SUNLinSol_Dense", 0)) return 1;
 
     retval = CVodeSetLinearSolver(cvode_mem, LS, A);
     if (check_retval(&retval, "CVodeSetLinearSolver", 1)) return 1;
+    // SUNLinSol_Dense() 是创建一个合法 SUNLinearSolver 对象的标准入口
 
 
     // Time-stepping loop

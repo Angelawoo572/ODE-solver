@@ -23,9 +23,10 @@ __global__ void f_kernel(sunrealtype* y, sunrealtype* ydot, int n) {
 
 // ODE function: dy/dt = -y
 static int f(sunrealtype t, N_Vector y, N_Vector ydot, void *user_data) {
+    // y(t) 
     sunrealtype* y_d = N_VGetDeviceArrayPointer_Cuda(y);
     sunrealtype* ydot_d = N_VGetDeviceArrayPointer_Cuda(ydot);
-    int n = N_VGetLength(y);
+    int n = N_VGetLength(y); // n = NEQ
 
     int block = 256;
     int grid = (n + block - 1) / block;
@@ -139,9 +140,9 @@ static int check_ans(N_Vector y, sunrealtype t, sunrealtype rtol, sunrealtype at
 int main()
 {
     SUNContext sunctx;
-    N_Vector y = NULL;
+    N_Vector y = NULL; // y(t)
     SUNLinearSolver LS = NULL;
-    void* cvode_mem = NULL;
+    void* cvode_mem = NULL; // point to CVODE internal solver
     sunrealtype t = T0, t_end = TEND, dt = DT;
     int retval;
 
@@ -150,15 +151,15 @@ int main()
     if (retval) return 1;
 
     // 1. Create CUDA N_Vector
-    y = N_VNew_Cuda(NEQ, sunctx);
+    y = N_VNew_Cuda(NEQ, sunctx); // length = NEQ的vector on GPU
     if (check_retval((void*)y, "N_VNew_Cuda", 0)) return 1;
-    N_VConst_Cuda(SUN_RCONST(1.0), y);
+    N_VConst_Cuda(SUN_RCONST(1.0), y); // y(0) = 1
 
     // 2. Create CVODE object
-    cvode_mem = CVodeCreate(CV_BDF, sunctx);
+    cvode_mem = CVodeCreate(CV_ADAMS, sunctx);
     if (check_retval((void*)cvode_mem, "CVodeCreate", 0)) return 1;
 
-    retval = CVodeInit(cvode_mem, f, t, y);
+    retval = CVodeInit(cvode_mem, f, t, y); // dy/dt = f(t,y)
     if (retval < 0) return 1;
 
     retval = CVodeSStolerances(cvode_mem, RTOL, ATOL);
@@ -170,6 +171,7 @@ int main()
     if (retval < 0) return 1;
 
     // 3. Set up Krylov linear solver (matrix-free, no dense/banded/cuda matrix needed)
+    // scaled preconditioned GMRES
     LS = SUNLinSol_SPGMR(y, SUN_PREC_NONE, 0, sunctx);
     if (check_retval((void*)LS, "SUNLinSol_SPGMR", 0)) return 1;
     retval = CVodeSetLinearSolver(cvode_mem, LS, NULL);
@@ -178,7 +180,7 @@ int main()
     // 4. Time stepping
     while (t < t_end) {
         sunrealtype t_next = t + dt;
-        retval = CVode(cvode_mem, t_next, y, &t, CV_NORMAL);
+        retval = CVode(cvode_mem, t_next, y, &t, CV_NORMAL); // from t integral to t_next, undate y and new t
         if (retval < 0) break;
         PrintOutput(t, y);
     }
@@ -249,3 +251,13 @@ int main()
 
 //     return 0;
 // }
+
+// 创建上下文 ─→ 创建初始向量 ─→ 初始化 CVODE ─→ 设置误差和步长
+//          ↓                          ↓
+//       创建线性 solver        设置右端项函数
+//          ↓                          ↓
+//        开始时间积分 ←─────── 推进每个时间点
+//          ↓
+//      检查误差
+//          ↓
+//       清理内存
