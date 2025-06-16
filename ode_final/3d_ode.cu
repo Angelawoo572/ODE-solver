@@ -18,11 +18,11 @@ This program solves the problem with the BDF method
 CUDA linear solver (if using cusolver)
 access to cuSolverSp batch QR SUNLinearSolver */
 #include <sunmatrix/sunmatrix_cusparse.h> /* access to cusparse SUNMatrix  */
-#include <cusolverSp.h>   // 顶端确保包含了 cuSolver 的头
 
 /* Problem Constants */
-
 #define GROUPSIZE 3               /* number of equations per group */
+/* 我们每个 block 是 3×3，所以每组非零数 nnzper = 9 */
+const int nnzper = GROUPSIZE * GROUPSIZE;
 #define Y1        SUN_RCONST(1.0) /* initial y components */
 #define Y2        SUN_RCONST(0.0)
 #define Y3        SUN_RCONST(0.0)
@@ -41,6 +41,11 @@ access to cuSolverSp batch QR SUNLinearSolver */
 
 static int f(sunrealtype t, N_Vector y, N_Vector ydot, void* user_data);
 
+static int Jac(sunrealtype t, N_Vector y, N_Vector fy, SUNMatrix J,
+               void* user_data, N_Vector tmp1, N_Vector tmp2, N_Vector tmp3);
+
+/* Private function to initialize the Jacobian sparsity pattern */
+static int JacInit(SUNMatrix J);
 
 /* Private function to output results */
 
@@ -165,6 +170,102 @@ static void PrintFinalStats(void* cvode_mem, SUNLinearSolver LS)
 }
 
 /*
+ * Jacobian initialization routine. This sets the sparisty pattern of
+ * the blocks of the Jacobian J(t,y) = df/dy. This is performed on the CPU,
+ * and only occurs at the beginning of the simulation.
+ */
+
+static int JacInit(SUNMatrix J)
+{
+  int    rowptrs[GROUPSIZE+1];
+  int    colvals[nnzper];
+
+  /* 全置零 */
+  SUNMatZero(J);
+
+  /* CSR 的 rowptrs */
+  for (int i = 0; i <= GROUPSIZE; i++)
+    rowptrs[i] = i * GROUPSIZE;
+
+  /* 每行的列索引 0,1,2 */
+  for (int i = 0; i < nnzper; i++)
+    colvals[i] = i % GROUPSIZE;
+
+  /* copy rowptrs, colvals to the device */
+  SUNMatrix_cuSparse_CopyToDevice(J, NULL, rowptrs, colvals);
+  cudaDeviceSynchronize();
+
+  return (0);
+}
+
+/* Jacobian evaluation GPU kernel */
+__global__ static void j_kernel(int ngroups,
+                                sunrealtype f1, sunrealtype f2, sunrealtype f3,
+                                sunrealtype g1, sunrealtype g2, sunrealtype g3,
+                                sunrealtype m,  sunrealtype g,
+                                sunrealtype* ydata,
+                                sunrealtype* Jdata)
+{
+  int groupj;
+
+  for (groupj = blockIdx.x * blockDim.x + threadIdx.x; groupj < ngroups;
+       groupj += blockDim.x * gridDim.x)
+  {
+
+    /* first row of block: ∂f1/∂m1, ∂f1/∂m2, ∂f1/∂m3 */
+    Jdata[nnzper * groupj + 0] = - m * g;
+    Jdata[nnzper * groupj + 1] = - f3;
+    Jdata[nnzper * groupj + 2] =   f2;
+
+    /* second row of block: ∂f2/∂m1, ∂f2/∂m2, ∂f2/∂m3 */
+    Jdata[nnzper * groupj + 3] =   f3;
+    Jdata[nnzper * groupj + 4] = - m * g;
+    Jdata[nnzper * groupj + 5] = - f1;
+
+    /* third row of block: ∂f3/∂m1, ∂f3/∂m2, ∂f3/∂m3 */
+    Jdata[nnzper * groupj + 6] = - f2;
+    Jdata[nnzper * groupj + 7] =   f1;
+    Jdata[nnzper * groupj + 8] = - m * g;
+  }
+}
+
+/*
+ * Jacobian routine. Compute J(t,y) = df/dy.
+ * This is done on the GPU.
+ */
+
+static int Jac(sunrealtype t, N_Vector y, N_Vector fy, SUNMatrix J,
+               void* user_data, N_Vector tmp1, N_Vector tmp2, N_Vector tmp3)
+{
+  UserData* udata = (UserData*)user_data;
+  sunrealtype *Jdata, *ydata;
+  unsigned block_size, grid_size;
+
+  Jdata  = SUNMatrix_cuSparse_Data(J);
+  ydata  = N_VGetDeviceArrayPointer_Cuda(y);
+
+  block_size = 32;
+  grid_size  = (udata->neq + block_size - 1) / block_size;
+  j_kernel<<<grid_size,block_size>>>(udata->ngroups,
+                                     udata->f1, udata->f2, udata->f3,
+                                     udata->g1, udata->g2, udata->g3,
+                                     udata->m,  udata->g,
+                                     ydata, Jdata);
+
+  cudaDeviceSynchronize();
+  cudaError_t cuerr = cudaGetLastError();
+  if (cuerr != cudaSuccess)
+  {
+    fprintf(stderr, ">>> ERROR in Jac: cudaGetLastError returned %s\n",
+            cudaGetErrorName(cuerr));
+    return (-1);
+  }
+
+  return (0);
+}
+
+
+/*
  *-------------------------------
  * Main Program
  *-------------------------------
@@ -175,13 +276,17 @@ int main(int argc, char* argv[])
   sunrealtype reltol, t, tout; // Solver tolerances and time variables
   sunrealtype *ydata, *abstol_data; // Host-side pointers to solution and tolerance data
   N_Vector y, abstol; // SUNDIALS vector structures for solution and absolute tolerance
+  SUNMatrix A;
   SUNLinearSolver LS; // Linear solver object (cuSolverSp QR)
   void* cvode_mem; // CVODE integrator memory
   int retval, iout; // return status and output counter
   int neq, ngroups, groupj;// Problem size: number of equations, groups, and loop index
   UserData udata;
+  cusparseHandle_t cusp_handle;
+  cusolverSpHandle_t cusol_handle;
 
   y = abstol = NULL;// Initialize all pointers to NULL to ensure safe cleanup
+  A = NULL;
   LS = NULL;  // Initialize linear solver pointer
   cvode_mem = NULL;  // Initialize CVODE memory
 
@@ -202,6 +307,10 @@ int main(int argc, char* argv[])
   udata.g3 = 0.3;
   udata.g = 0.01;
   udata.m = 1.5;
+
+  /* Initialize cuSOLVER and cuSPARSE handles */
+  cusparseCreate(&cusp_handle);
+  cusolverSpCreate(&cusol_handle);
 
   /* Create the SUNDIALS context */
   SUNContext_Create(SUN_COMM_NULL, &sunctx);
@@ -234,13 +343,6 @@ int main(int argc, char* argv[])
   }
   N_VCopyToDevice_Cuda(abstol);
 
-  // 1) 创建 cuSolver handle
-  cusolverSpHandle_t cusolverH = nullptr;
-  if (cusolverSpCreate(&cusolverH) != CUSOLVER_STATUS_SUCCESS) {
-    fprintf(stderr, "Failed to create cuSolver handle\n");
-    return -1;
-  }
-
   /* Call CVodeCreate to create the solver memory and specify the
    * Backward Differentiation Formula */
   cvode_mem = CVodeCreate(CV_BDF, sunctx);
@@ -257,11 +359,21 @@ int main(int argc, char* argv[])
    * and vector absolute tolerances */
   CVodeSVtolerances(cvode_mem, reltol, abstol);
 
-  /* Create the SUNLinearSolver object for use by CVode */
-  LS = SUNLinSol_cuSolverSp_batchQR(y, NULL, cusolverH,0);
+  A = SUNMatrix_cuSparse_NewBlockCSR(ngroups, GROUPSIZE, GROUPSIZE,
+                                     GROUPSIZE * GROUPSIZE, cusp_handle, sunctx);
 
-  /* Call CVodeSetLinearSolver to attach the matrix and linear solver to CVode */
-  CVodeSetLinearSolver(cvode_mem, LS, NULL);
+  /* Set the sparsity pattern to be fixed so that the row pointers
+   * and column indices are not zeroed out by SUNMatZero */
+  SUNMatrix_cuSparse_SetFixedPattern(A, 1);
+  /* Initialiize the Jacobian with its fixed sparsity pattern */
+  JacInit(A);
+  /* Create the SUNLinearSolver object for use by CVode */
+  LS = SUNLinSol_cuSolverSp_batchQR(y, A, cusol_handle, sunctx);
+
+  CVodeSetLinearSolver(cvode_mem, LS, A);
+
+  /* Set the user-supplied Jacobian routine Jac */
+  CVodeSetJacFn(cvode_mem, Jac);
 
   /* In loop, call CVode, print results, and test for error.
      Break out of loop when NOUT preset output times have been reached.  */
@@ -303,7 +415,14 @@ int main(int argc, char* argv[])
   /* Free the linear solver memory */
   SUNLinSolFree(LS);
 
+  /* Free the matrix memory */
+  SUNMatDestroy(A);
+
   SUNContext_Free(&sunctx);
+
+  /* Destroy the cuSOLVER and cuSPARSE handles */
+  cusparseDestroy(cusp_handle);
+  cusolverSpDestroy(cusol_handle);
 
   return (0);
 }

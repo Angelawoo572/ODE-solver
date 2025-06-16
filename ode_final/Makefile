@@ -1,10 +1,13 @@
 SUNDIALS_DIR := /home/qianruw/2025summer/sundials-install
 INCLUDE_FLAGS := -I$(SUNDIALS_DIR)/include
 LIBRARY_FLAGS := -L$(SUNDIALS_DIR)/lib64
-LDLIBS := -lsundials_cvode -lsundials_nveccuda -lsundials_sunlinsolcusolversp -lsundials_core -lcusolver -lcusparse -lcudart -lcudadevrt -lm
+
+LDLIBS := -lsundials_cvode -lsundials_nveccuda \
+          -lsundials_sunlinsolcusolversp -lsundials_sunmatrixcusparse \
+          -lsundials_core -lcusolver -lcusparse -lcudart -lcudadevrt -lm
 
 NVCC := nvcc
-CUDA_ARCH := -arch=sm_89     # 修改为你的GPU实际架构！
+CUDA_ARCH := -arch=sm_89
 CUDA_DEBUG := -G
 
 TARGET := 3dODE_gpu
@@ -20,3 +23,4 @@ run: $(TARGET)
 
 clean:
 	rm -f $(TARGET)
+
