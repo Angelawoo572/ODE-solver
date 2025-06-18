@@ -83,7 +83,7 @@ __global__ static void f_kernel(sunrealtype t, sunrealtype* ydata,
   int i      = blockIdx.x * blockDim.x + threadIdx.x;
   int groupj = i * GROUPSIZE;
 
-  if (i < ngroups)
+  if (i < neq)
   {
     m1 = ydata[groupj];
     m2 = ydata[groupj + 1];
@@ -183,7 +183,7 @@ static int JacInit(SUNMatrix J)
   /* 全置零 */
   SUNMatZero(J);
 
-  /* CSR 的 rowptrs */
+  /* compressed sparse row 的 rowptrs */
   for (int i = 0; i <= GROUPSIZE; i++)
     rowptrs[i] = i * GROUPSIZE;
 
