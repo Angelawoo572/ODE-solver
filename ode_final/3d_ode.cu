@@ -19,6 +19,11 @@ CUDA linear solver (if using cusolver)
 access to cuSolverSp batch QR SUNLinearSolver */
 #include <sunmatrix/sunmatrix_cusparse.h> /* access to cusparse SUNMatrix  */
 
+__constant__ sunrealtype c_he;   // 前向/后向加权因子
+__constant__ sunrealtype c_hk;   // 额外权重
+__constant__ sunrealtype c_hap;  // 偏置
+__constant__ sunrealtype c_ap;   // 放缩系数
+
 /* Problem Constants */
 #define GROUPSIZE 3               /* number of equations per group */
 /* 我们每个 block 是 3×3，所以每组非零数 nnzper = 9 */
@@ -74,24 +79,40 @@ typedef struct
  */
 
 /* Right hand side function evaluation kernel. */
-__global__ static void f_kernel(sunrealtype t, sunrealtype* ydata,
-                                sunrealtype* ydotdata, int neq, int ngroups,sunrealtype f1, sunrealtype f2, sunrealtype f3,
-    sunrealtype g1, sunrealtype g2, sunrealtype g3,
-    sunrealtype m, sunrealtype g)
+__global__ static void f_kernel(const sunrealtype* __restrict__ y,
+                                sunrealtype* __restrict__ yd,
+                                int neq)
 {
-  sunrealtype m1, m2, m3;
-  int i      = blockIdx.x * blockDim.x + threadIdx.x;
-  int groupj = i * GROUPSIZE;
+  sunrealtype fi, fj, fk;
+  sunrealtype gi, gj, gk;
+  sunrealtype mg;
 
-  if (i < neq)
+  int i      = threadIdx.x;
+  int j      = blockDim.x +threadIdx.x;
+  int k      = 2*blockDim.x +threadIdx.x;
+
+
+  if (i < neq -1 && i > 0 )
   {
-    m1 = ydata[groupj];
-    m2 = ydata[groupj + 1];
-    m3 = ydata[groupj + 2];
+    fi = c_he*(y[i+1]+y[i-1]);
+    fj = c_he*(y[j+1]+y[i-1]);
+    fk = c_he*(y[k+1]+y[i-1])+c_hk*y[k]+c_hap;
 
-    ydotdata[groupj] = m3*f2 - m2*f3 + g1 - m*g*m1;
-    ydotdata[groupj + 1] = m1*f3 - m3*f1 + g2 - m*g*m2;
-    ydotdata[groupj + 2] = m2*f1 - m1*f2 + g3 - m*g*m3;
+    gi = c_ap*fi;
+    gj = c_ap*fj;
+    gk = c_ap*fk;
+
+    mg=y[i]*gi+y[j]*gj+y[k]*gk;
+
+    yd[i] = y[k]*fj - y[j]*fk + gi - mg*y[i];
+    yd[j] = y[i]*fk - y[k]*fi + gj - mg*y[j];
+    yd[k] = y[j]*fi - y[i]*fj + gk - mg*y[k];
+  }
+  else
+  {
+	  yd[i]=0;
+	  yd[j]=0;
+	  yd[k]=0;
   }
 }
 
@@ -111,9 +132,8 @@ static int f(sunrealtype t, N_Vector y, N_Vector ydot, void* user_data)
     unsigned block_size = 32;
     // total threads = grid_size * block_size
     // grid_size is ceil - (a+b-1)/b
-    unsigned grid_size  = (udata->neq + block_size - 1) / block_size;
-    f_kernel<<<grid_size, block_size>>>(t, ydata, ydotdata, udata->neq,udata->ngroups,
-      udata->f1, udata->f2, udata->f3, udata->g1, udata->g2,udata->g3, udata->m, udata->g);
+    unsigned grid_size  = (udata->neq + block_size - 1) / block_size /3;
+    f_kernel<<<grid_size, block_size>>>(ydata, ydotdata, udata->neq);
 
     cudaDeviceSynchronize();
     cudaError_t cuerr = cudaGetLastError();
@@ -284,6 +304,16 @@ int main(int argc, char* argv[])
   UserData udata;
   cusparseHandle_t cusp_handle;
   cusolverSpHandle_t cusol_handle;
+
+  sunrealtype h_he  = 1.0;
+  sunrealtype h_hk  = 1.0;
+  sunrealtype h_hap = 1.0;
+  sunrealtype h_ap  = 1.0;
+
+  cudaMemcpyToSymbol(c_he,  &h_he,  sizeof(sunrealtype));
+  cudaMemcpyToSymbol(c_hk,  &h_hk,  sizeof(sunrealtype));
+  cudaMemcpyToSymbol(c_hap, &h_hap, sizeof(sunrealtype));
+  cudaMemcpyToSymbol(c_ap,  &h_ap,  sizeof(sunrealtype));
 
   y = abstol = NULL;// Initialize all pointers to NULL to ensure safe cleanup
   A = NULL;
