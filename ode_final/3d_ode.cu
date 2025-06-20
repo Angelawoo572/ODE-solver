@@ -19,14 +19,15 @@ CUDA linear solver (if using cusolver)
 access to cuSolverSp batch QR SUNLinearSolver */
 #include <sunmatrix/sunmatrix_cusparse.h> /* access to cusparse SUNMatrix  */
 
-__constant__ sunrealtype c_he;   // 前向/后向加权因子
-__constant__ sunrealtype c_hk;   // 额外权重
-__constant__ sunrealtype c_hap;  // 偏置
-__constant__ sunrealtype c_ap;   // 放缩系数
+// constant memory
+__constant__ sunrealtype c_he;
+__constant__ sunrealtype c_hk;
+__constant__ sunrealtype c_hap;
+__constant__ sunrealtype c_ap;
 
 /* Problem Constants */
 #define GROUPSIZE 3               /* number of equations per group */
-/* 我们每个 block 是 3×3，所以每组非零数 nnzper = 9 */
+/* 我们每个 block 是 3*3，所以每组非零数 nnzper = 9 */
 const int nnzper = GROUPSIZE * GROUPSIZE;
 #define Y1        SUN_RCONST(1.0) /* initial y components */
 #define Y2        SUN_RCONST(0.0)
@@ -43,7 +44,6 @@ const int nnzper = GROUPSIZE * GROUPSIZE;
 #define ZERO SUN_RCONST(0.0)
 
 /* Functions Called by the Solver */
-
 static int f(sunrealtype t, N_Vector y, N_Vector ydot, void* user_data);
 
 static int Jac(sunrealtype t, N_Vector y, N_Vector fy, SUNMatrix J,
@@ -53,7 +53,6 @@ static int Jac(sunrealtype t, N_Vector y, N_Vector fy, SUNMatrix J,
 static int JacInit(SUNMatrix J);
 
 /* Private function to output results */
-
 static void PrintOutput(sunrealtype t, sunrealtype y1, sunrealtype y2,
                         sunrealtype y3);
 
@@ -79,6 +78,7 @@ typedef struct
  */
 
 /* Right hand side function evaluation kernel. */
+
 __global__ static void f_kernel(const sunrealtype* __restrict__ y,
                                 sunrealtype* __restrict__ yd,
                                 int neq)
@@ -86,13 +86,16 @@ __global__ static void f_kernel(const sunrealtype* __restrict__ y,
   sunrealtype fi, fj, fk;
   sunrealtype gi, gj, gk;
   sunrealtype mg;
+  sunindextype i, j, k, tid;
 
-  int i      = threadIdx.x;
-  int j      = blockDim.x +threadIdx.x;
-  int k      = 2*blockDim.x +threadIdx.x;
+  tid = blockDim.x*blockIdx.x + threadIdx.x ;
+
+  i = tid%blockDim;
+  j = blockDim+tid%blockDim;
+  k = 2*blockDim+tid%blockDim;
 
 
-  if (i < neq -1 && i > 0 )
+  if ( tid > 0 && tid < blockDim - 1 )
   {
     fi = c_he*(y[i+1]+y[i-1]);
     fj = c_he*(y[j+1]+y[i-1]);
@@ -104,15 +107,39 @@ __global__ static void f_kernel(const sunrealtype* __restrict__ y,
 
     mg=y[i]*gi+y[j]*gj+y[k]*gk;
 
-    yd[i] = y[k]*fj - y[j]*fk + gi - mg*y[i];
-    yd[j] = y[i]*fk - y[k]*fi + gj - mg*y[j];
-    yd[k] = y[j]*fi - y[i]*fj + gk - mg*y[k];
+    yd[tid] = y[k]*fj - y[j]*fk + gi - mg*y[i];
+  }
+  elseif ( tid > blockDim && tid < 2*blockDim - 1 )
+  {
+    fi = c_he*(y[i+1]+y[i-1]);
+    fj = c_he*(y[j+1]+y[i-1]);
+    fk = c_he*(y[k+1]+y[i-1])+c_hk*y[k]+c_hap;
+
+    gi = c_ap*fi;
+    gj = c_ap*fj;
+    gk = c_ap*fk;
+
+    mg=y[i]*gi+y[j]*gj+y[k]*gk;
+
+    yd[tid] = y[i]*fk - y[k]*fi + gj - mg*y[j];
+  }
+  elseif ( tid > 2*blockDim && tid < 3*blockDim - 1 )
+  {
+    fi = c_he*(y[i+1]+y[i-1]);
+    fj = c_he*(y[j+1]+y[i-1]);
+    fk = c_he*(y[k+1]+y[i-1])+c_hk*y[k]+c_hap;
+
+    gi = c_ap*fi;
+    gj = c_ap*fj;
+    gk = c_ap*fk;
+
+    mg=y[i]*gi+y[j]*gj+y[k]*gk;
+
+    yd[tid] = y[j]*fi - y[i]*fj + gk - mg*y[k];
   }
   else
   {
-	  yd[i]=0;
-	  yd[j]=0;
-	  yd[k]=0;
+	  yd[yid]=0;
   }
 }
 
@@ -120,6 +147,7 @@ __global__ static void f_kernel(const sunrealtype* __restrict__ y,
    to do the actual computation. At the very least, doing this
    saves moving the vector data in y and ydot to/from the device
    every evaluation of f. */
+
 static int f(sunrealtype t, N_Vector y, N_Vector ydot, void* user_data)
 {
     UserData* udata;
