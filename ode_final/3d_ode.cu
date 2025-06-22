@@ -234,14 +234,41 @@ int main(int argc, char* argv[])
     abstol_data = N_VGetHostArrayPointer_Cuda(abstol);
 
     /* Initialize y and abstol on host then copy to device */
-    for (groupj = 0; groupj < neq; groupj += GROUPSIZE) {
-        ydata[groupj]     = Y1;
-        ydata[groupj + 1] = Y2;
-        ydata[groupj + 2] = Y3;
-        abstol_data[groupj]     = ATOL1;
-        abstol_data[groupj + 1] = ATOL2;
-        abstol_data[groupj + 2] = ATOL3;
+    int nspin = 32;
+    int ix, iy, iz;
+
+    for(i=0,i<nspin,i++)
+    {
+	    ix=3*i;
+	    iy=ix+1;
+	    iz=iy+1;
+
+	    if(i==0)
+	    {
+		    yin[ix]=0.0;
+		    yin[iy]=0.0;
+		    yin[iz]=1.0;
+	    }
+	    elseif(i == nspin)
+	    {
+		    yin[ix]=0.0;
+		    yin[iy]=0.0;
+		    yin[iz]=-1.0;
+	    }
+	    elseif(i < nspin/2)
+	    {
+		    yin[ix]=0.0;
+		    yin[iy]=0.0;
+		    yin[iz]=1.0;
+	    }
+	    elseif
+	    {
+		    yin[ix]=0.0;
+		    yin[iy]=0.0;
+		    yin[iz]=-1.0;
+	    }
     }
+
     N_VCopyToDevice_Cuda(y);
     N_VCopyToDevice_Cuda(abstol);
 
