@@ -245,27 +245,27 @@ int main(int argc, char* argv[])
 
 	    if(i==0)
 	    {
-		    yin[ix]=0.0;
-		    yin[iy]=0.0;
-		    yin[iz]=1.0;
+		    ydata[ix]=0.0;
+		    ydata[iy]=0.0;
+		    ydata[iz]=1.0;
 	    }
 	    elseif(i == nspin)
 	    {
-		    yin[ix]=0.0;
-		    yin[iy]=0.0;
-		    yin[iz]=-1.0;
+		    ydata[ix]=0.0;
+		    ydata[iy]=0.0;
+		    ydata[iz]=-1.0;
 	    }
 	    elseif(i < nspin/2)
 	    {
-		    yin[ix]=0.0;
-		    yin[iy]=0.0;
-		    yin[iz]=1.0;
+		    ydata[ix]=0.0;
+		    ydata[iy]=0.0;
+		    ydata[iz]=1.0;
 	    }
 	    elseif
 	    {
-		    yin[ix]=0.0;
-		    yin[iy]=0.0;
-		    yin[iz]=-1.0;
+		    ydata[ix]=0.0;
+		    ydata[iy]=0.0;
+		    ydata[iz]=-1.0;
 	    }
     }
 
