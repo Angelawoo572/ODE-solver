@@ -215,7 +215,7 @@ int main(int argc, char* argv[])
     cudaMemcpyToSymbol(c_ap,  &h_ap,  sizeof(sunrealtype));
 
     /* Parse command-line to get number of groups */
-    ngroups = (argc > 1 ? atoi(argv[1]) : 100);
+    ngroups = (argc > 1 ? atoi(argv[1]) : 96);
     neq     = ngroups * GROUPSIZE;
 
     /* Fill user data */
@@ -297,7 +297,7 @@ for (int i = 0; i < neq; i += 3) {
     while (iout < NOUT) {
         retval = CVode(cvode_mem, tout, y, &t, CV_NORMAL);
         N_VCopyFromDevice_Cuda(y);
-        for (groupj = 0; groupj < ngroups; groupj ++;) {
+        for (groupj = 0; groupj < ngroups; groupj ++) {
             printf("group %d: ", groupj);
             PrintOutput(t,
                         ydata[GROUPSIZE * groupj],
