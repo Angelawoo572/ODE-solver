@@ -249,7 +249,7 @@ int main(int argc, char* argv[])
 		    ydata[iy]=0.0;
 		    ydata[iz]=1.0;
 	    }
-	    else if(i == nspin)
+	    else if(i == nspin-1)
 	    {
 		    ydata[ix]=0.0;
 		    ydata[iy]=0.0;
@@ -269,6 +269,11 @@ int main(int argc, char* argv[])
       }
     }
 
+for (int i = 0; i < neq; i += 3) {
+    abstol_data[i]   = ATOL1;
+    abstol_data[i+1] = ATOL2;
+    abstol_data[i+2] = ATOL3;
+}
     N_VCopyToDevice_Cuda(y);
     N_VCopyToDevice_Cuda(abstol);
 
