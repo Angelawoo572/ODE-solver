@@ -137,6 +137,10 @@ static int f(sunrealtype t, N_Vector y, N_Vector ydot, void* user_data)
       udata->d_mh, udata->neq);
 
     cudaDeviceSynchronize();
+	sunrealtype h_ydot[9];
+	cudaMemcpy(h_ydot, ydotdata, 9 * sizeof(sunrealtype), cudaMemcpyDeviceToHost);
+	printf("ydot sample: %f %f %f\n", h_ydot[0], h_ydot[1], h_ydot[2]);
+
     cudaError_t cuerr = cudaGetLastError();
     if (cuerr != cudaSuccess)
     {
