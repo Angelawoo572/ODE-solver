@@ -78,7 +78,7 @@ __global__ static void f_kernel(
   sunindextype i, j, k, tid,iq,ip,ix,iy,iz,imsk;
   // thread index
   tid = blockDim.x*blockIdx.x + threadIdx.x;
-  if (tid >= GROUPSIZE && tid < neq - GROUPSIZE){
+  if ( tid > indexbound && tid < neq - GROUPSIZE){
     iq=tid-3; // 前一组位置
     ip=tid+3; // 后一组位置
     ix=tid-(tid)%3; // ix = 3 * (tid / 3)
@@ -93,7 +93,7 @@ __global__ static void f_kernel(
     h[tid] = che*(y[iq]+y[ip])+msk[imsk]*chk*y[iz];
   }
   __syncthreads();
-  if (tid >= GROUPSIZE && tid < neq - GROUPSIZE){
+  if ( tid > indexbound && tid < neq - GROUPSIZE){
     i=tid-tid%3; // x
     j=i+1; // y
     k=j+1; // x
