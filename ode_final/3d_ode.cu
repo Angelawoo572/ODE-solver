@@ -237,7 +237,7 @@ int main(int argc, char* argv[])
     int nspin = 32;
     int ix, iy, iz;
 
-    for(i=0,i<nspin,i++)
+    for(int i=0;i<nspin;i++)
     {
 	    ix=3*i;
 	    iy=ix+1;
@@ -249,24 +249,24 @@ int main(int argc, char* argv[])
 		    ydata[iy]=0.0;
 		    ydata[iz]=1.0;
 	    }
-	    elseif(i == nspin)
+	    else if(i == nspin)
 	    {
 		    ydata[ix]=0.0;
 		    ydata[iy]=0.0;
 		    ydata[iz]=-1.0;
 	    }
-	    elseif(i < nspin/2)
+	    else if(i < nspin/2)
 	    {
 		    ydata[ix]=0.0;
 		    ydata[iy]=0.0;
 		    ydata[iz]=1.0;
 	    }
-	    elseif
+	    else
 	    {
 		    ydata[ix]=0.0;
 		    ydata[iy]=0.0;
 		    ydata[iz]=-1.0;
-	    }
+      }
     }
 
     N_VCopyToDevice_Cuda(y);
