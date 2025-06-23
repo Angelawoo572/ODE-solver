@@ -297,7 +297,7 @@ for (int i = 0; i < neq; i += 3) {
     while (iout < NOUT) {
         retval = CVode(cvode_mem, tout, y, &t, CV_NORMAL);
         N_VCopyFromDevice_Cuda(y);
-        for (groupj = 0; groupj < ngroups; groupj += 10) {
+        for (groupj = 0; groupj < ngroups; groupj ++;) {
             printf("group %d: ", groupj);
             PrintOutput(t,
                         ydata[GROUPSIZE * groupj],
