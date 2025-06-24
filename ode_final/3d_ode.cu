@@ -25,8 +25,8 @@ __constant__ sunrealtype c_ap;
 #define GROUPSIZE 3               /* number of equations per group */
 #define indexbound 2
 #define RTOL      SUN_RCONST(1.0e-4) /* scalar relative tolerance            */
-#define ATOL1     SUN_RCONST(1.0e-8) /* vector absolute tolerance components */
-#define ATOL2     SUN_RCONST(1.0e-14)
+#define ATOL1     SUN_RCONST(1.0e-6) /* vector absolute tolerance components */
+#define ATOL2     SUN_RCONST(1.0e-6)
 #define ATOL3     SUN_RCONST(1.0e-6)
 #define T0        SUN_RCONST(0.0)  /* initial time           */
 #define T1        SUN_RCONST(0.4)  /* first output time      */
