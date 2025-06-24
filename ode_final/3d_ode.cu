@@ -67,37 +67,35 @@ __global__ static void f_kernel(
   // thread index
   tid = blockDim.x*blockIdx.x + threadIdx.x;
   if ( tid > indexbound && tid < blockDim.x - GROUPSIZE){
-    iq=tid-3; // 前一组位置
-    ip=tid+3; // 后一组位置
-    ix=tid-(tid)%3; // ix = 3 * (tid / 3)
-    iy=ix+1;
-    iz=iy+1;
-    imsk=tid%3; // tid在3个一组的thread的相对位置 x = 0, y = 1, z = 2
-    /*
-    normalize effective field, vector f
-    che*(y[iq]+y[ip]); exchange interaction
-    msk[imsk]*chk*y[iz]; AnisotropyTrem
-     */
-    h[tid] = che*(y[iq]+y[ip])+msk[imsk]*chk*y[iz];
+// ****************** EDITED TO ALTER INDEXING ********************** //
+    int group = tid / 3;
+    int loc = tid % 3;
+    int left = tid - 3;
+    int right = tid + 3;
+    int zidx = 3 * group + 2;  // group's z-component
+
+    h[tid] = che * (y[left] + y[right]) + msk[loc] * chk * y[zidx];
     printf("he");
+// ********* END EDIT ************ //
   }
   __syncthreads();
   if ( tid > indexbound && tid < blockDim.x - GROUPSIZE){
-    i=tid-tid%3; // x
-    j=i+1; // y
-    k=j+1; // x
-    // m 点乘 f,3个维度 dot product
-    mh[tid]=y[i]*h[i]+y[j]*h[j]+y[k]*h[k];
+// *********************** EDITED TO CHANGE INDEXING AND DOT PRODUCT CALCULATION *********************** //
+    int group = tid / 3;
+    int loc = tid % 3;
+    int ix = 3 * group;
+    int iy = ix + 1;
+    int iz = ix + 2;
 
-    j=tid+(tid+1)%3;
-    k=tid+(tid+2)%3;
-    /* 
-    g = alpha * f
-    dm/dtao = m叉乘f 前一部分 cross product
-    y[tid] is mi
-    */
-    yd[tid] = y[k]*h[j] - y[j]*h[k] + alpha*(h[tid] - mh[tid]*y[tid]);
+    sunrealtype dotprod = y[ix] * h[ix] + y[iy] * h[iy] + y[iz] * h[iz];
+    mh[tid] = dotprod;
+
+    int j = 3 * group + (loc + 1) % 3;
+    int k = 3 * group + (loc + 2) % 3;
+
+    yd[tid] = y[k] * h[j] - y[j] * h[k] + alpha * (h[tid] - dot * y[tid]);
     printf("hi");
+// ***************** END EDIT ************* //
   }
   else
   {
