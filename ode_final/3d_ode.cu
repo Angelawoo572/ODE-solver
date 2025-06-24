@@ -25,12 +25,12 @@ __constant__ sunrealtype c_ap;
 #define GROUPSIZE 3               /* number of equations per group */
 #define indexbound 2
 #define RTOL      SUN_RCONST(1.0e-4) /* scalar relative tolerance            */
-#define ATOL1     SUN_RCONST(1.0e-6) /* vector absolute tolerance components */
-#define ATOL2     SUN_RCONST(1.0e-6)
-#define ATOL3     SUN_RCONST(1.0e-6)
+#define ATOL1     SUN_RCONST(1.0e-3) /* vector absolute tolerance components */
+#define ATOL2     SUN_RCONST(1.0e-3)
+#define ATOL3     SUN_RCONST(1.0e-3)
 #define T0        SUN_RCONST(0.0)  /* initial time           */
 #define T1        SUN_RCONST(0.4)  /* first output time      */
-#define TMULT     SUN_RCONST(10.0) /* output time factor     */
+#define TMULT     SUN_RCONST(5.0) /* output time factor     */
 #define NOUT      12               /* number of output times */
 
 #define ZERO SUN_RCONST(0.0)
@@ -101,7 +101,7 @@ __global__ static void f_kernel(
   else
   {
     yd[tid]=0;
-    printf("DEBUG: entering kernel, neq = %d\n", neq);
+    // printf("DEBUG: entering kernel, neq = %d\n", neq);
   }
 }
 
@@ -131,7 +131,7 @@ static int f(sunrealtype t, N_Vector y, N_Vector ydot, void* user_data)
     //debug
     sunrealtype h_ydot[9];
     cudaMemcpy(h_ydot, ydotdata + 3, 3 * sizeof(sunrealtype), cudaMemcpyDeviceToHost);
-    printf("ydot sample (group 1): %f %f %f\n", h_ydot[0], h_ydot[1], h_ydot[2]);
+    // printf("ydot sample (group 1): %f %f %f\n", h_ydot[0], h_ydot[1], h_ydot[2]);
     
     cudaError_t cuerr = cudaGetLastError();
     if (cuerr != cudaSuccess)
@@ -274,8 +274,7 @@ int main(int argc, char* argv[])
     CVodeSetUserData(cvode_mem, &udata);
     CVodeSVtolerances(cvode_mem, RTOL, abstol);
 
-CVodeSetMaxStep(cvode_mem, SUN_RCONST(1.0));  // Set max step size to 1.0 units of time
-
+    CVodeSetMaxStep(cvode_mem, SUN_RCONST(1.0));  // Set max step size to 1.0 units of time
 
     /* Matrix-free GMRES linear solver (no Jacobian needed) */
     NLS = SUNNonlinSol_Newton(y, sunctx);
