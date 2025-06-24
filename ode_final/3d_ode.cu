@@ -275,6 +275,7 @@ int main(int argc, char* argv[])
     CVodeSVtolerances(cvode_mem, RTOL, abstol);
 
     CVodeSetMaxStep(cvode_mem, SUN_RCONST(1.0));  // Set max step size to 1.0 units of time
+CVodeSetMinStep(cvode_mem, 1e-12)
 
     /* Matrix-free GMRES linear solver (no Jacobian needed) */
     NLS = SUNNonlinSol_Newton(y, sunctx);
