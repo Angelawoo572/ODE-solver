@@ -13,6 +13,7 @@ This program solves the problem with the BDF method
 #include <stdlib.h>
 #include <sundials/sundials_types.h> /* defs. of sunrealtype, int                        */
 #include <sunlinsol/sunlinsol_spgmr.h>
+#include <sunnonlinsol/sunnonlinsol_newton.h>
 
 // constant memory
 __constant__ sunrealtype c_he;
@@ -197,6 +198,7 @@ int main(int argc, char* argv[])
     sunrealtype t, tout;
     N_Vector y, abstol; // SUNDIALS vector structures for solution and absolute tolerance
     SUNLinearSolver LS; // Linear solver object (cuSolverSp QR)
+    SUNNonlinearSolver NLS;
     void* cvode_mem; // CVODE integrator memory
     int retval, iout; // return status and output counter
     int neq, ngroups, groupj;// Problem size: number of equations, groups, and loop index
@@ -273,6 +275,8 @@ int main(int argc, char* argv[])
     CVodeSVtolerances(cvode_mem, RTOL, abstol);
 
     /* Matrix-free GMRES linear solver (no Jacobian needed) */
+    NLS = SUNNonlinSol_Newton(y, sunctx);
+    CVodeSetNonlinearSolver(cvode_mem, NLS);
     LS = SUNLinSol_SPGMR(y, SUN_PREC_NONE, 0, sunctx);
     CVodeSetLinearSolver(cvode_mem, LS, NULL);
 
@@ -314,6 +318,7 @@ int main(int argc, char* argv[])
     N_VDestroy(abstol);
     CVodeFree(&cvode_mem);
     SUNLinSolFree(LS);
+    SUNNonlinSolFree(NLS);
     SUNContext_Free(&sunctx);
 
     return 0;
