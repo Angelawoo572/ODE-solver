@@ -291,6 +291,15 @@ int main(int argc, char* argv[])
     tout = T1;
     while (iout < NOUT) {
         retval = CVode(cvode_mem, tout, y, &t, CV_NORMAL);
+
+// ********* FOR DEBUGGING ********** //
+long int nst, netf, ncfn;
+CVodeGetNumSteps(cvode_mem, &nst);
+CVodeGetNumErrTestFails(cvode_mem, &netf);
+CVodeGetNumNonlinSolvConvFails(cvode_mem, &ncfn);
+printf("nst = %ld, netf = %ld, ncfn = %ld\n", nst, netf, ncfn);
+// ********* END DEBUGGING ********** //
+
         // copy solution back to host and print all groups
         N_VCopyFromDevice_Cuda(y);
         ydata = N_VGetHostArrayPointer_Cuda(y);
