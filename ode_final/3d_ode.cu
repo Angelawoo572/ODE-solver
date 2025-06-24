@@ -65,36 +65,18 @@ __global__ static void f_kernel(
   // thread index
   tid = blockDim.x*blockIdx.x + threadIdx.x;
   if ( tid > indexbound && tid < blockDim.x - GROUPSIZE){
-    int gid = tid / 3;          // group index
-    int base = gid * 3;         // start of current spin
-    int imsk = tid % 3;         // 0:x, 1:y, 2:z
-
-    // Neighbor spins
-    float fx = 0.0f, fy = 0.0f, fz = 0.0f;
-
-    if (gid > 0) {
-        fx += y[base - 3];  // mx(i-1)
-        fy += y[base - 2];  // my(i-1)
-        fz += y[base - 1];  // mz(i-1)
-    }
-    if (gid < ngroups - 1) {
-        fx += y[base + 3];  // mx(i+1)
-        fy += y[base + 4];  // my(i+1)
-        fz += y[base + 5];  // mz(i+1)
-    }
-
-    // Apply anisotropy only along z via msk[]
-    float mx = y[base];
-    float my = y[base + 1];
-    float mz = y[base + 2];
-
-    if (imsk == 0)
-        h[tid] = che * fx + chk * msk[0] * mx;
-    else if (imsk == 1)
-        h[tid] = che * fy + chk * msk[1] * my;
-    else
-        h[tid] = che * fz + chk * msk[2] * mz;
-}
+    iq=tid-3; // 前一组位置
+    ip=tid+3; // 后一组位置
+    ix=tid-(tid)%3; // ix = 3 * (tid / 3)
+    iy=ix+1;
+    iz=iy+1;
+    imsk=tid%3; // tid在3个一组的thread的相对位置 x = 0, y = 1, z = 2
+    /*
+    normalize effective field, vector f
+    che*(y[iq]+y[ip]); exchange interaction
+    msk[imsk]*chk*y[iz]; AnisotropyTrem
+     */
+    h[tid] = che*(y[iq]+y[ip])+msk[imsk]*chk*y[iz];
   }
   __syncthreads();
   if ( tid > indexbound && tid < blockDim.x - GROUPSIZE){
