@@ -82,21 +82,43 @@ __global__ static void f_kernel(
     h[tid] = che*(y[iq]+y[ip])+msk[imsk]*chk*y[iz];
   }
   __syncthreads();
-  if ( tid > indexbound && tid < blockDim.x - GROUPSIZE){
-    i=tid-tid%3; // x
-    j=i+1; // y
-    k=j+1; // x
-    // m 点乘 f,3个维度 dot product
-    mh[tid]=y[i]*h[i]+y[j]*h[j]+y[k]*h[k];
 
-    j=tid+(tid+1)%3;
-    k=tid+(tid+2)%3;
-    /* 
-    g = alpha * f
-    dm/dtao = m叉乘f 前一部分 cross product
-    y[tid] is mi
-    */
-    yd[tid] = y[k]*h[j] - y[j]*h[k] + alpha*(h[tid] - mh[tid]*y[tid]);
+ if (tid >= 3 && tid <= neq - 4) {
+    int gid = tid / 3;         // group ID
+    int base = 3 * gid;        // base index for this group's 3-vector
+    int imsk = tid % 3;        // 0: x, 1: y, 2: z
+
+    float mx = y[base];
+    float my = y[base + 1];
+    float mz = y[base + 2];
+
+    float fx = h[base];
+    float fy = h[base + 1];
+    float fz = h[base + 2];
+
+    // m × f
+    float mxf_x = my * fz - mz * fy;
+    float mxf_y = mz * fx - mx * fz;
+    float mxf_z = mx * fy - my * fx;
+
+    // m ⋅ f
+    float mdotf = mx * fx + my * fy + mz * fz;
+
+    // m × (m × f) = mdotf * m - f
+    float mmxf_x = mdotf * mx - fx;
+    float mmxf_y = mdotf * my - fy;
+    float mmxf_z = mdotf * mz - fz;
+
+    // Gilbert form: dm/dτ = - (m × f + α m × (m × f)) / (1 + α²)
+    float denom = 1.0f + alpha * alpha;
+
+    float dmx = (-mxf_x - alpha * mmxf_x) / denom;
+    float dmy = (-mxf_y - alpha * mmxf_y) / denom;
+    float dmz = (-mxf_z - alpha * mmxf_z) / denom;
+
+    if (imsk == 0) yd[tid] = dmx;
+    if (imsk == 1) yd[tid] = dmy;
+    if (imsk == 2) yd[tid] = dmz;
   }
   else
   {
