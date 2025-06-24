@@ -3,8 +3,7 @@ problem: three rate equations:
     dm1/dt = m3*f2 - m2*f3 + g1 - m*g*m1
     dm2/dt = m1*f3 - m3*f1 + g2 - m*g*m2
     dm3/dt = m2*f1 - m1*f2 + g3 - m*g*m3
-on the interval from t = 0.0 to t = 4.e10, with initial
-conditions: m1 = 1.0, m2 = 0.0, m3 = 0.0
+on the interval from t = 0.0 to t = 4.e10, with 
 This program solves the problem with the BDF method
 */
 
@@ -24,9 +23,6 @@ __constant__ sunrealtype c_ap;
 /* Problem Constants */
 #define GROUPSIZE 3               /* number of equations per group */
 #define indexbound 2
-#define Y1        SUN_RCONST(1.0) /* initial y components */
-#define Y2        SUN_RCONST(0.0)
-#define Y3        SUN_RCONST(0.0)
 #define RTOL      SUN_RCONST(1.0e-4) /* scalar relative tolerance            */
 #define ATOL1     SUN_RCONST(1.0e-8) /* vector absolute tolerance components */
 #define ATOL2     SUN_RCONST(1.0e-14)
@@ -42,14 +38,6 @@ __constant__ float msk[3]={0.0f,0.0f,1.0f};
 __constant__ float chk=1.0f;
 __constant__ float che=0.2f;
 __constant__ float alpha=0.02;   
-
-/* Private function to output results */
-static void PrintOutput(sunrealtype t, sunrealtype y1, sunrealtype y2,
-                        sunrealtype y3);
-
-/* Private function to print final statistics */
-
-static void PrintFinalStats(void* cvode_mem, SUNLinearSolver LS);
 
 
 /* user data structure for parallel*/
@@ -78,7 +66,7 @@ __global__ static void f_kernel(
   sunindextype i, j, k, tid,iq,ip,ix,iy,iz,imsk;
   // thread index
   tid = blockDim.x*blockIdx.x + threadIdx.x;
-  if ( tid > indexbound && tid < neq - GROUPSIZE){
+  if ( tid > indexbound && tid < blockDim.x - GROUPSIZE){
     iq=tid-3; // 前一组位置
     ip=tid+3; // 后一组位置
     ix=tid-(tid)%3; // ix = 3 * (tid / 3)
@@ -91,9 +79,10 @@ __global__ static void f_kernel(
     msk[imsk]*chk*y[iz]; AnisotropyTrem
      */
     h[tid] = che*(y[iq]+y[ip])+msk[imsk]*chk*y[iz];
+    printf("he");
   }
   __syncthreads();
-  if ( tid > indexbound && tid < neq - GROUPSIZE){
+  if ( tid > indexbound && tid < blockDim.x - GROUPSIZE){
     i=tid-tid%3; // x
     j=i+1; // y
     k=j+1; // x
@@ -108,10 +97,12 @@ __global__ static void f_kernel(
     y[tid] is mi
     */
     yd[tid] = y[k]*h[j] - y[j]*h[k] + alpha*(h[tid] - mh[tid]*y[tid]);
+    printf("hi");
   }
   else
   {
     yd[tid]=0;
+    printf("DEBUG: entering kernel, neq = %d\n", neq);
   }
 }
 
@@ -132,15 +123,17 @@ static int f(sunrealtype t, N_Vector y, N_Vector ydot, void* user_data)
     unsigned block_size = 96;
     // total threads = grid_size * block_size
     // grid_size is ceil - (a+b-1)/b
-    unsigned grid_size  = (udata->neq + block_size - 1) / block_size;
+    unsigned grid_size  = 1; // 1 (udata->neq + block_size - 1) / block_size
     f_kernel<<<grid_size, block_size>>>(ydata, ydotdata,udata->d_h,
       udata->d_mh, udata->neq);
 
     cudaDeviceSynchronize();
-	sunrealtype h_ydot[9];
-	cudaMemcpy(h_ydot, ydotdata, 9 * sizeof(sunrealtype), cudaMemcpyDeviceToHost);
-	printf("ydot sample: %f %f %f\n", h_ydot[0], h_ydot[1], h_ydot[2]);
 
+    //debug
+    sunrealtype h_ydot[9];
+    cudaMemcpy(h_ydot, ydotdata + 3, 3 * sizeof(sunrealtype), cudaMemcpyDeviceToHost);
+    printf("ydot sample (group 1): %f %f %f\n", h_ydot[0], h_ydot[1], h_ydot[2]);
+    
     cudaError_t cuerr = cudaGetLastError();
     if (cuerr != cudaSuccess)
     {
@@ -211,15 +204,8 @@ int main(int argc, char* argv[])
     int neq, ngroups, groupj;// Problem size: number of equations, groups, and loop index
     UserData udata;
 
-    /* Copy constants into device constant memory */
-    sunrealtype h_he  = 1.0, h_hk = 1.0, h_hap = 1.0, h_ap = 1.0;
-    cudaMemcpyToSymbol(c_he,  &h_he,  sizeof(sunrealtype));
-    cudaMemcpyToSymbol(c_hk,  &h_hk,  sizeof(sunrealtype));
-    cudaMemcpyToSymbol(c_hap, &h_hap, sizeof(sunrealtype));
-    cudaMemcpyToSymbol(c_ap,  &h_ap,  sizeof(sunrealtype));
-
     /* Parse command-line to get number of groups */
-    ngroups = (argc > 1 ? atoi(argv[1]) : 96);
+    ngroups = 32;
     neq     = ngroups * GROUPSIZE;
 
     /* Fill user data */
@@ -234,11 +220,12 @@ int main(int argc, char* argv[])
     /* Allocate CUDA vectors for solution and tolerances */
     y     = N_VNew_Cuda(neq, sunctx);
     abstol= N_VNew_Cuda(neq, sunctx);
+    // get host pointers
     ydata       = N_VGetHostArrayPointer_Cuda(y);
     abstol_data = N_VGetHostArrayPointer_Cuda(abstol);
 
     /* Initialize y and abstol on host then copy to device */
-    int nspin = 32;
+    int nspin = ngroups; //32
     int ix, iy, iz;
 
     for(int i=0;i<nspin;i++)
@@ -273,11 +260,11 @@ int main(int argc, char* argv[])
       }
     }
 
-for (int i = 0; i < neq; i += 3) {
-    abstol_data[i]   = ATOL1;
-    abstol_data[i+1] = ATOL2;
-    abstol_data[i+2] = ATOL3;
-}
+    for (int i = 0; i < neq; i += 3) {
+        abstol_data[i]   = ATOL1;
+        abstol_data[i+1] = ATOL2;
+        abstol_data[i+2] = ATOL3;
+    }
     N_VCopyToDevice_Cuda(y);
     N_VCopyToDevice_Cuda(abstol);
 
@@ -296,11 +283,13 @@ for (int i = 0; i < neq; i += 3) {
     printf("number of groups = %d\n\n", ngroups);
 
     /* Time-stepping loop */
-    iout = 0;
+    iout = T0;
     tout = T1;
     while (iout < NOUT) {
         retval = CVode(cvode_mem, tout, y, &t, CV_NORMAL);
+        // copy solution back to host and print all groups
         N_VCopyFromDevice_Cuda(y);
+        ydata = N_VGetHostArrayPointer_Cuda(y);
         for (groupj = 0; groupj < ngroups; groupj ++) {
             printf("group %d: ", groupj);
             PrintOutput(t,
@@ -311,6 +300,9 @@ for (int i = 0; i < neq; i += 3) {
         if (retval == CV_SUCCESS) {
             iout++;
             tout *= TMULT;
+        }else {
+            fprintf(stderr, "CVode error at output %d: retval = %d\n", iout, retval);
+            break;
         }
     }
 
