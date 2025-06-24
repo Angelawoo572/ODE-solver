@@ -16,15 +16,11 @@ This program solves the problem with the BDF method
 #include <sunnonlinsol/sunnonlinsol_newton.h>
 
 // constant memory
-__constant__ sunrealtype c_he;
-__constant__ sunrealtype c_hk;
-__constant__ sunrealtype c_hap;
-__constant__ sunrealtype c_ap;
 
 /* Problem Constants */
 #define GROUPSIZE 3               /* number of equations per group */
 #define indexbound 2
-#define RTOL      SUN_RCONST(1.0e-4) /* scalar relative tolerance            */
+#define RTOL      SUN_RCONST(1.0e-3) /* scalar relative tolerance            */
 #define ATOL1     SUN_RCONST(1.0e-3) /* vector absolute tolerance components */
 #define ATOL2     SUN_RCONST(1.0e-3)
 #define ATOL3     SUN_RCONST(1.0e-3)
@@ -35,6 +31,7 @@ __constant__ sunrealtype c_ap;
 
 #define ZERO SUN_RCONST(0.0)
 
+// constant memory
 __constant__ float msk[3]={0.0f,0.0f,1.0f};
 __constant__ float chk=1.0f;
 __constant__ float che=0.2f;
@@ -82,43 +79,21 @@ __global__ static void f_kernel(
     h[tid] = che*(y[iq]+y[ip])+msk[imsk]*chk*y[iz];
   }
   __syncthreads();
+  if ( tid > indexbound && tid < blockDim.x - GROUPSIZE){
+    i=tid-tid%3; // x
+    j=i+1; // y
+    k=j+1; // x
+    // m 点乘 f,3个维度 dot product
+    mh[tid]=y[i]*h[i]+y[j]*h[j]+y[k]*h[k];
 
- if (tid >= 3 && tid <= neq - 4) {
-    int gid = tid / 3;         // group ID
-    int base = 3 * gid;        // base index for this group's 3-vector
-    int imsk = tid % 3;        // 0: x, 1: y, 2: z
-
-    float mx = y[base];
-    float my = y[base + 1];
-    float mz = y[base + 2];
-
-    float fx = h[base];
-    float fy = h[base + 1];
-    float fz = h[base + 2];
-
-    // m × f
-    float mxf_x = my * fz - mz * fy;
-    float mxf_y = mz * fx - mx * fz;
-    float mxf_z = mx * fy - my * fx;
-
-    // m ⋅ f
-    float mdotf = mx * fx + my * fy + mz * fz;
-
-    // m × (m × f) = mdotf * m - f
-    float mmxf_x = mdotf * mx - fx;
-    float mmxf_y = mdotf * my - fy;
-    float mmxf_z = mdotf * mz - fz;
-
-    // Gilbert form: dm/dτ = - (m × f + α m × (m × f)) / (1 + α²)
-    float denom = 1.0f + alpha * alpha;
-
-    float dmx = (-mxf_x - alpha * mmxf_x) / denom;
-    float dmy = (-mxf_y - alpha * mmxf_y) / denom;
-    float dmz = (-mxf_z - alpha * mmxf_z) / denom;
-
-    if (imsk == 0) yd[tid] = dmx;
-    if (imsk == 1) yd[tid] = dmy;
-    if (imsk == 2) yd[tid] = dmz;
+    j=tid+(tid+1)%3;
+    k=tid+(tid+2)%3;
+    /* 
+    g = alpha * f
+    dm/dtao = m叉乘f 前一部分 cross product
+    y[tid] is mi
+    */
+    yd[tid] = y[k]*h[j] - y[j]*h[k] + alpha*(h[tid] - mh[tid]*y[tid]);
   }
   else
   {
@@ -151,8 +126,8 @@ static int f(sunrealtype t, N_Vector y, N_Vector ydot, void* user_data)
     cudaDeviceSynchronize();
 
     //debug
-    sunrealtype h_ydot[9];
-    cudaMemcpy(h_ydot, ydotdata + 3, 3 * sizeof(sunrealtype), cudaMemcpyDeviceToHost);
+    // sunrealtype h_ydot[9];
+    // cudaMemcpy(h_ydot, ydotdata + 3, 3 * sizeof(sunrealtype), cudaMemcpyDeviceToHost);
     // printf("ydot sample (group 1): %f %f %f\n", h_ydot[0], h_ydot[1], h_ydot[2]);
     
     cudaError_t cuerr = cudaGetLastError();
