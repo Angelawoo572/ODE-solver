@@ -25,16 +25,16 @@ This program solves the problem with the BDF method
 #define ATOL2     SUN_RCONST(1.0e-3)
 #define ATOL3     SUN_RCONST(1.0e-3)
 #define T0        SUN_RCONST(0.0)  /* initial time           */
-#define T1        SUN_RCONST(0.4)  /* first output time      */
-#define TMULT     SUN_RCONST(5.0) /* output time factor     */
-#define NOUT      12               /* number of output times */
+#define T1        SUN_RCONST(0.1)  /* first output time      */
+#define TMULT     SUN_RCONST(1.0) /* output time factor     */
+#define NOUT      120              /* number of output times */
 
 #define ZERO SUN_RCONST(0.0)
 
 // constant memory
 __constant__ float msk[3]={0.0f,0.0f,1.0f};
 __constant__ float chk=1.0f;
-__constant__ float che=0.2f;
+__constant__ float che=0.6f;
 __constant__ float alpha=0.02;   
 
 
@@ -192,7 +192,8 @@ int main(int argc, char* argv[])
 {
     SUNContext sunctx; // SUNDIALS context
     sunrealtype *ydata, *abstol_data; // Host-side pointers to solution and tolerance data
-    sunrealtype t, tout;
+    sunrealtype t;
+    sunrealtype tout;
     N_Vector y, abstol; // SUNDIALS vector structures for solution and absolute tolerance
     SUNLinearSolver LS; // Linear solver object (cuSolverSp QR)
     SUNNonlinearSolver NLS;
@@ -290,11 +291,11 @@ int main(int argc, char* argv[])
     while (iout < NOUT) {
         retval = CVode(cvode_mem, tout, y, &t, CV_NORMAL);
         // ********* FOR DEBUGGING ********** //
-        long int nst, netf, ncfn;
-        CVodeGetNumSteps(cvode_mem, &nst);
-        CVodeGetNumErrTestFails(cvode_mem, &netf);
-        CVodeGetNumNonlinSolvConvFails(cvode_mem, &ncfn);
-        printf("nst = %ld, netf = %ld, ncfn = %ld\n", nst, netf, ncfn);
+        // long int nst, netf, ncfn;
+        // CVodeGetNumSteps(cvode_mem, &nst);
+        // CVodeGetNumErrTestFails(cvode_mem, &netf);
+        // CVodeGetNumNonlinSolvConvFails(cvode_mem, &ncfn);
+        // printf("nst = %ld, netf = %ld, ncfn = %ld\n", nst, netf, ncfn);
         // ********* END DEBUGGING ********** //
         // copy solution back to host and print all groups
         N_VCopyFromDevice_Cuda(y);
@@ -308,7 +309,7 @@ int main(int argc, char* argv[])
         }
         if (retval == CV_SUCCESS) {
             iout++;
-            tout *= TMULT;
+            tout += T1;
         }else {
             fprintf(stderr, "CVode error at output %d: retval = %d\n", iout, retval);
             break;
