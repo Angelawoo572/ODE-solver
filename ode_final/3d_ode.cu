@@ -20,22 +20,24 @@ This program solves the problem with the BDF method
 /* Problem Constants */
 #define GROUPSIZE 3               /* number of equations per group */
 #define indexbound 2
-#define RTOL      SUN_RCONST(1.0e-3) /* scalar relative tolerance            */
-#define ATOL1     SUN_RCONST(1.0e-3) /* vector absolute tolerance components */
-#define ATOL2     SUN_RCONST(1.0e-3)
-#define ATOL3     SUN_RCONST(1.0e-3)
+#define RTOL      SUN_RCONST(1.0e-5) /* scalar relative tolerance            */
+#define ATOL1     SUN_RCONST(1.0e-5) /* vector absolute tolerance components */
+#define ATOL2     SUN_RCONST(1.0e-5)
+#define ATOL3     SUN_RCONST(1.0e-5)
 #define T0        SUN_RCONST(0.0)  /* initial time           */
 #define T1        SUN_RCONST(0.1)  /* first output time      */
-#define TMULT     SUN_RCONST(1.0) /* output time factor     */
-#define NOUT      120              /* number of output times */
+#define DT    ((T1 - T0) / NOUT)
+// #define NOUT      120             /* number of output times */
 
 #define ZERO SUN_RCONST(0.0)
 
 // constant memory
 __constant__ float msk[3]={0.0f,0.0f,1.0f};
 __constant__ float chk=1.0f;
-__constant__ float che=0.6f;
-__constant__ float alpha=0.02;   
+__constant__ float che=4.0f;
+__constant__ float alpha=0.05f;  // 0.0f
+__constant__ float chg = 1.0f; 
+__constant__ float cha = 0.0f; //0.2
 
 
 /* user data structure for parallel*/
@@ -76,7 +78,8 @@ __global__ static void f_kernel(
     che*(y[iq]+y[ip]); exchange interaction
     msk[imsk]*chk*y[iz]; AnisotropyTrem
      */
-    h[tid] = che*(y[iq]+y[ip])+msk[imsk]*chk*y[iz];
+    h[tid] = cha+che*(y[iq]+y[ip])+msk[imsk]*chk*y[iz];
+    // printf("h[%d] = %g\n", tid, che*(y[iq]+y[ip]) + msk[imsk]*chk*y[iz]);
   }
   __syncthreads();
   if ( tid > indexbound && tid < blockDim.x - GROUPSIZE){
@@ -86,20 +89,23 @@ __global__ static void f_kernel(
     // m 点乘 f,3个维度 dot product
     mh[tid]=y[i]*h[i]+y[j]*h[j]+y[k]*h[k];
 
-    j=tid+(tid+1)%3;
-    k=tid+(tid+2)%3;
+    // j=tid+(tid+1)%3;
+    j = (tid-tid%3) + (tid + 1) - 3 * ((tid+1)/3);
+    k = (tid-tid%3) + (tid + 2) - 3 * ((tid+2)/3);
+    // k=tid+(tid+2)%3;
     /* 
     g = alpha * f
     dm/dtao = m叉乘f 前一部分 cross product
-    y[tid] is mi
+    y[tid] is m
     */
-    yd[tid] = y[k]*h[j] - y[j]*h[k] + alpha*(h[tid] - mh[tid]*y[tid]);
+    yd[tid] = chg*(y[k]*h[j] - y[j]*h[k]) + alpha*(h[tid] - mh[tid]*y[tid]);
   }
   else
   {
     yd[tid]=0;
     // printf("DEBUG: entering kernel, neq = %d\n", neq);
   }
+   __syncthreads();
 }
 
 /* Right hand side function. This just launches the CUDA kernel
@@ -116,7 +122,7 @@ static int f(sunrealtype t, N_Vector y, N_Vector ydot, void* user_data)
     ydata    = N_VGetDeviceArrayPointer_Cuda(y);
     ydotdata = N_VGetDeviceArrayPointer_Cuda(ydot);
 
-    unsigned block_size = 96;
+    unsigned block_size = 3 * 64;
     // total threads = grid_size * block_size
     // grid_size is ceil - (a+b-1)/b
     unsigned grid_size  = 1; // 1 (udata->neq + block_size - 1) / block_size
@@ -203,7 +209,7 @@ int main(int argc, char* argv[])
     UserData udata;
 
     /* Parse command-line to get number of groups */
-    ngroups = 32;
+    ngroups = 64;
     neq     = ngroups * GROUPSIZE;
 
     /* Fill user data */
@@ -272,9 +278,6 @@ int main(int argc, char* argv[])
     CVodeSetUserData(cvode_mem, &udata);
     CVodeSVtolerances(cvode_mem, RTOL, abstol);
 
-    CVodeSetMaxStep(cvode_mem, SUN_RCONST(1.0));  // Set max step size to 1.0 units of time
-    CVodeSetMinStep(cvode_mem, 1e-12);
-
     /* Matrix-free GMRES linear solver (no Jacobian needed) */
     NLS = SUNNonlinSol_Newton(y, sunctx);
     CVodeSetNonlinearSolver(cvode_mem, NLS);
@@ -286,17 +289,24 @@ int main(int argc, char* argv[])
     printf("number of groups = %d\n\n", ngroups);
 
     /* Time-stepping loop */
+    float ttotal=100.0f;
     iout = T0;
     tout = T1;
+    float yamp[1000];
+    int NOUT=ttotal/T1;
     while (iout < NOUT) {
+      // &t cvode实际走到的地方
         retval = CVode(cvode_mem, tout, y, &t, CV_NORMAL);
-        // ********* FOR DEBUGGING ********** //
-        // long int nst, netf, ncfn;
-        // CVodeGetNumSteps(cvode_mem, &nst);
-        // CVodeGetNumErrTestFails(cvode_mem, &netf);
-        // CVodeGetNumNonlinSolvConvFails(cvode_mem, &ncfn);
-        // printf("nst = %ld, netf = %ld, ncfn = %ld\n", nst, netf, ncfn);
-        // ********* END DEBUGGING ********** //
+        // for (int j=0;j<32;j++)
+        // {
+        //   int jx = 3*j ;
+        //   int jy = jx+1;
+        //   int jz = jy+1;
+        //   yamp[j]=sqrt(y[jx]*y[jx]+y[jy]*y[jy]+y[jz]*y[jz]);
+        //   y[jx]=y[jx]/yamp[j];
+        //   y[jy]=y[jy]/yamp[j];
+        //   y[jz]=y[jz]/yamp[j];
+        // }
         // copy solution back to host and print all groups
         N_VCopyFromDevice_Cuda(y);
         ydata = N_VGetHostArrayPointer_Cuda(y);
@@ -309,11 +319,12 @@ int main(int argc, char* argv[])
         }
         if (retval == CV_SUCCESS) {
             iout++;
-            tout += T1;
+            tout += T1; // T0 + iout*T1
         }else {
             fprintf(stderr, "CVode error at output %d: retval = %d\n", iout, retval);
             break;
         }
+        // printf("%f\n",tout);
     }
 
     /* Print final statistics */
