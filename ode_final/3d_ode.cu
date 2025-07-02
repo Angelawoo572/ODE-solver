@@ -14,6 +14,7 @@ This program solves the problem with the BDF method
 #include <sundials/sundials_types.h> /* defs. of sunrealtype, int                        */
 #include <sunlinsol/sunlinsol_spgmr.h>
 #include <sunnonlinsol/sunnonlinsol_newton.h>
+#include <math.h>
 
 // constant memory
 
@@ -35,12 +36,13 @@ This program solves the problem with the BDF method
 
 // constant memory
 __constant__ float msk[3]={0.0f,0.0f,1.0f};
+__constant__ float nsk[3]={1.0f,0.0f,0.0f};
 __constant__ float chk=1.0f;
-__constant__ float che=4.0f;
+__constant__ float che =4.0f;
 __constant__ float alpha=0.05f;  // 0.0f
 __constant__ float chg = 1.0f; 
 __constant__ float cha = 0.0f; //0.2
-
+__constant__ float chb = 0.1f;
 
 /* user data structure for parallel*/
 typedef struct
@@ -80,7 +82,7 @@ __global__ static void f_kernel(
     che*(y[iq]+y[ip]); exchange interaction
     msk[imsk]*chk*y[iz]; AnisotropyTrem
      */
-    h[tid] = cha+che*(y[iq]+y[ip])+msk[imsk]*chk*y[iz];
+    h[tid] = che*(y[iq]+y[ip])+msk[imsk]*(chk*y[iz]+cha)+nsk[imsk]*(y[ix+3]+y[ix-3])*chb;
     // printf("h[%d] = %g\n", tid, che*(y[iq]+y[ip]) + msk[imsk]*chk*y[iz]);
   }
   __syncthreads();
@@ -92,8 +94,10 @@ __global__ static void f_kernel(
     mh[tid]=y[i]*h[i]+y[j]*h[j]+y[k]*h[k];
 
     // j=tid+(tid+1)%3;
-    j = ( tid - tid % GROUPSIZE) + (tid + ONE) - GROUPSIZE * ((tid + ONE)/GROUPSIZE);
-    k = (tid - tid % GROUPSIZE) + (tid + TWO) - GROUPSIZE * ((tid + TWO) / GROUPSIZE);
+    int M = (tid+ONE) /GROUPSIZE;
+    int N = (tid + TWO) / GROUPSIZE;
+    j = ( tid - tid % GROUPSIZE) + (tid + ONE) - GROUPSIZE * M;
+    k = (tid - tid % GROUPSIZE) + (tid + TWO) - GROUPSIZE * N;
     // k=tid+(tid+2)%3;
     /* 
     g = alpha * f
@@ -124,7 +128,7 @@ static int f(sunrealtype t, N_Vector y, N_Vector ydot, void* user_data)
     ydata    = N_VGetDeviceArrayPointer_Cuda(y);
     ydotdata = N_VGetDeviceArrayPointer_Cuda(ydot);
 
-    unsigned block_size = GROUPSIZE * 64;
+    unsigned block_size = GROUPSIZE * 32;
     // total threads = grid_size * block_size
     // grid_size is ceil - (a+b-1)/b
     unsigned grid_size  = 1; // 1 (udata->neq + block_size - 1) / block_size
@@ -211,7 +215,7 @@ int main(int argc, char* argv[])
     UserData udata;
 
     /* Parse command-line to get number of groups */
-    ngroups = 64;
+    ngroups = 32;
     neq     = ngroups * GROUPSIZE;
 
     /* Fill user data */
@@ -310,11 +314,47 @@ int main(int argc, char* argv[])
     }
     N_VCopyFromDevice_Cuda(y);
     ydata = N_VGetHostArrayPointer_Cuda(y);
+    printf("\n=== Old constants final t ===\n");
     for (groupj = 0; groupj < ngroups; groupj ++) {
       printf("group %d: ", groupj);
       PrintOutput(t,ydata[GROUPSIZE * groupj],
                     ydata[1 + GROUPSIZE * groupj],
                     ydata[2 + GROUPSIZE * groupj]);
+    }
+
+    // 把 host 端新值拷到 GPU constant memory
+    float host_cha   = -0.6f;
+    float host_alpha = 0.0f;
+    cudaMemcpyToSymbol(cha,   &host_cha,   sizeof(float));
+    cudaMemcpyToSymbol(alpha, &host_alpha, sizeof(float));
+    CVodeReInit(cvode_mem, T0, y);
+    iout = 0;
+    tout = T1;
+
+    printf("\n=== New constants, printing every time step ===\n");
+    while (iout < NOUT) {
+      retval = CVode(cvode_mem, tout, y, &t, CV_NORMAL);
+      if (retval != CV_SUCCESS) {
+        fprintf(stderr, "CVode error at step %d: %d\n", iout, retval);
+        break;
+      }
+
+      // 每一步都把解拷回，并打印所有 group
+      N_VCopyFromDevice_Cuda(y);
+      ydata = N_VGetHostArrayPointer_Cuda(y);
+      // printf("t = %0.4e\n", t);
+      if (iout % 10 == 0) {
+        for (int gj = 0; gj < ngroups; gj++) {
+        printf("  group %2d: ", gj);
+        PrintOutput(t,
+                    ydata[3*gj + 0],
+                    ydata[3*gj + 1],
+                    ydata[3*gj + 2]);
+      }
+      }
+
+      iout++;
+      tout += T1;
     }
 
     /* Print final statistics */
