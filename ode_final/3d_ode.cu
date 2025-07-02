@@ -17,9 +17,11 @@ This program solves the problem with the BDF method
 
 // constant memory
 
-/* Problem Constants */
+/* Problem Constants */ 
 #define GROUPSIZE 3               /* number of equations per group */
 #define indexbound 2
+#define ONE 1
+#define TWO 2
 #define RTOL      SUN_RCONST(1.0e-5) /* scalar relative tolerance            */
 #define ATOL1     SUN_RCONST(1.0e-5) /* vector absolute tolerance components */
 #define ATOL2     SUN_RCONST(1.0e-5)
@@ -65,14 +67,14 @@ __global__ static void f_kernel(
 {
   sunindextype i, j, k, tid,iq,ip,ix,iy,iz,imsk;
   // thread index
-  tid = blockDim.x*blockIdx.x + threadIdx.x;
+  tid = blockDim.x * blockIdx.x + threadIdx.x;
   if ( tid > indexbound && tid < blockDim.x - GROUPSIZE){
-    iq=tid-3; // 前一组位置
-    ip=tid+3; // 后一组位置
-    ix=tid-(tid)%3; // ix = 3 * (tid / 3)
-    iy=ix+1;
-    iz=iy+1;
-    imsk=tid%3; // tid在3个一组的thread的相对位置 x = 0, y = 1, z = 2
+    iq = tid - GROUPSIZE; // 前一组位置, -3
+    ip = tid + GROUPSIZE; // 后一组位置, +3
+    ix = tid - (tid) % GROUPSIZE; // ix = 3 * (tid / 3)
+    iy = ix + ONE;
+    iz = iy + ONE;
+    imsk = tid % GROUPSIZE; // tid在3个一组的thread的相对位置 x = 0, y = 1, z = 2
     /*
     normalize effective field, vector f
     che*(y[iq]+y[ip]); exchange interaction
@@ -83,15 +85,15 @@ __global__ static void f_kernel(
   }
   __syncthreads();
   if ( tid > indexbound && tid < blockDim.x - GROUPSIZE){
-    i=tid-tid%3; // x
-    j=i+1; // y
-    k=j+1; // x
+    i = tid - tid % GROUPSIZE; // x
+    j = i + ONE; // y
+    k = j + ONE; // x
     // m 点乘 f,3个维度 dot product
     mh[tid]=y[i]*h[i]+y[j]*h[j]+y[k]*h[k];
 
     // j=tid+(tid+1)%3;
-    j = (tid-tid%3) + (tid + 1) - 3 * ((tid+1)/3);
-    k = (tid-tid%3) + (tid + 2) - 3 * ((tid+2)/3);
+    j = ( tid - tid % GROUPSIZE) + (tid + ONE) - GROUPSIZE * ((tid + ONE)/GROUPSIZE);
+    k = (tid - tid % GROUPSIZE) + (tid + TWO) - GROUPSIZE * ((tid + TWO) / GROUPSIZE);
     // k=tid+(tid+2)%3;
     /* 
     g = alpha * f
@@ -102,7 +104,7 @@ __global__ static void f_kernel(
   }
   else
   {
-    yd[tid]=0;
+    yd[tid] = 0;
     // printf("DEBUG: entering kernel, neq = %d\n", neq);
   }
    __syncthreads();
@@ -122,7 +124,7 @@ static int f(sunrealtype t, N_Vector y, N_Vector ydot, void* user_data)
     ydata    = N_VGetDeviceArrayPointer_Cuda(y);
     ydotdata = N_VGetDeviceArrayPointer_Cuda(ydot);
 
-    unsigned block_size = 3 * 64;
+    unsigned block_size = GROUPSIZE * 64;
     // total threads = grid_size * block_size
     // grid_size is ceil - (a+b-1)/b
     unsigned grid_size  = 1; // 1 (udata->neq + block_size - 1) / block_size
@@ -232,7 +234,7 @@ int main(int argc, char* argv[])
     int nspin = ngroups; //32
     int ix, iy, iz;
 
-    for(int i=0;i<nspin;i++)
+    for(int i = 0;i < nspin;i++)
     {
 	    ix=3*i;
 	    iy=ix+1;
@@ -292,39 +294,27 @@ int main(int argc, char* argv[])
     float ttotal=100.0f;
     iout = T0;
     tout = T1;
-    float yamp[1000];
     int NOUT=ttotal/T1;
     while (iout < NOUT) {
       // &t cvode实际走到的地方
-        retval = CVode(cvode_mem, tout, y, &t, CV_NORMAL);
-        // for (int j=0;j<32;j++)
-        // {
-        //   int jx = 3*j ;
-        //   int jy = jx+1;
-        //   int jz = jy+1;
-        //   yamp[j]=sqrt(y[jx]*y[jx]+y[jy]*y[jy]+y[jz]*y[jz]);
-        //   y[jx]=y[jx]/yamp[j];
-        //   y[jy]=y[jy]/yamp[j];
-        //   y[jz]=y[jz]/yamp[j];
-        // }
-        // copy solution back to host and print all groups
-        N_VCopyFromDevice_Cuda(y);
-        ydata = N_VGetHostArrayPointer_Cuda(y);
-        for (groupj = 0; groupj < ngroups; groupj ++) {
-            printf("group %d: ", groupj);
-            PrintOutput(t,
-                        ydata[GROUPSIZE * groupj],
-                        ydata[1 + GROUPSIZE * groupj],
-                        ydata[2 + GROUPSIZE * groupj]);
-        }
-        if (retval == CV_SUCCESS) {
-            iout++;
-            tout += T1; // T0 + iout*T1
-        }else {
-            fprintf(stderr, "CVode error at output %d: retval = %d\n", iout, retval);
-            break;
-        }
-        // printf("%f\n",tout);
+      retval = CVode(cvode_mem, tout, y, &t, CV_NORMAL);
+      // copy solution back to host and print all groups
+      if (retval == CV_SUCCESS) {
+        iout++;
+        tout += T1; // T0 + iout*T1
+      }else {
+        fprintf(stderr, "CVode error at output %d: retval = %d\n", iout, retval);
+        break;
+      }
+      // printf("%f\n",tout);
+    }
+    N_VCopyFromDevice_Cuda(y);
+    ydata = N_VGetHostArrayPointer_Cuda(y);
+    for (groupj = 0; groupj < ngroups; groupj ++) {
+      printf("group %d: ", groupj);
+      PrintOutput(t,ydata[GROUPSIZE * groupj],
+                    ydata[1 + GROUPSIZE * groupj],
+                    ydata[2 + GROUPSIZE * groupj]);
     }
 
     /* Print final statistics */
