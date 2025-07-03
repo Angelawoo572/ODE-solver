@@ -38,11 +38,11 @@ This program solves the problem with the BDF method
 __constant__ float msk[3]={0.0f,0.0f,1.0f};
 __constant__ float nsk[3]={1.0f,0.0f,0.0f};
 __constant__ float chk=1.0f;
-__constant__ float che =4.0f;
-__constant__ float alpha=0.05f;  // 0.0f
+__constant__ float che =0.0f;
+__constant__ float alpha=0.02f;  // 0.0f
 __constant__ float chg = 1.0f; 
-__constant__ float cha = 0.0f; //0.2
-__constant__ float chb = 0.1f;
+__constant__ float cha = 1.5f; //0.2
+__constant__ float chb = 0.0f;
 
 /* user data structure for parallel*/
 typedef struct
@@ -295,43 +295,43 @@ int main(int argc, char* argv[])
     printf("number of groups = %d\n\n", ngroups);
 
     /* Time-stepping loop */
-    float ttotal=100.0f;
+    float ttotal=500.0f;
     iout = T0;
     tout = T1;
     int NOUT=ttotal/T1;
-    while (iout < NOUT) {
-      // &t cvode实际走到的地方
-      retval = CVode(cvode_mem, tout, y, &t, CV_NORMAL);
-      // copy solution back to host and print all groups
-      if (retval == CV_SUCCESS) {
-        iout++;
-        tout += T1; // T0 + iout*T1
-      }else {
-        fprintf(stderr, "CVode error at output %d: retval = %d\n", iout, retval);
-        break;
-      }
-      // printf("%f\n",tout);
-    }
-    N_VCopyFromDevice_Cuda(y);
-    ydata = N_VGetHostArrayPointer_Cuda(y);
-    printf("\n=== Old constants final t ===\n");
-    for (groupj = 0; groupj < ngroups; groupj ++) {
-      printf("group %d: ", groupj);
-      PrintOutput(t,ydata[GROUPSIZE * groupj],
-                    ydata[1 + GROUPSIZE * groupj],
-                    ydata[2 + GROUPSIZE * groupj]);
-    }
+    // while (iout < NOUT) {
+    //   // &t cvode实际走到的地方
+    //   retval = CVode(cvode_mem, tout, y, &t, CV_NORMAL);
+    //   // copy solution back to host and print all groups
+    //   if (retval == CV_SUCCESS) {
+    //     iout++;
+    //     tout += T1; // T0 + iout*T1
+    //   }else {
+    //     fprintf(stderr, "CVode error at output %d: retval = %d\n", iout, retval);
+    //     break;
+    //   }
+    //   // printf("%f\n",tout);
+    // }
+    // N_VCopyFromDevice_Cuda(y);
+    // ydata = N_VGetHostArrayPointer_Cuda(y);
+    // printf("\n=== Old constants final t ===\n");
+    // for (groupj = 0; groupj < ngroups; groupj ++) {
+    //   printf("group %d: ", groupj);
+    //   PrintOutput(t,ydata[GROUPSIZE * groupj],
+    //                 ydata[1 + GROUPSIZE * groupj],
+    //                 ydata[2 + GROUPSIZE * groupj]);
+    // }
 
-    // 把 host 端新值拷到 GPU constant memory
-    float host_cha   = -0.6f;
-    float host_alpha = 0.0f;
-    cudaMemcpyToSymbol(cha,   &host_cha,   sizeof(float));
-    cudaMemcpyToSymbol(alpha, &host_alpha, sizeof(float));
-    CVodeReInit(cvode_mem, T0, y);
-    iout = 0;
-    tout = T1;
+    // // 把 host 端新值拷到 GPU constant memory
+    // float host_cha   = -0.6f;
+    // float host_alpha = 0.0f;
+    // cudaMemcpyToSymbol(cha,   &host_cha,   sizeof(float));
+    // // cudaMemcpyToSymbol(alpha, &host_alpha, sizeof(float));
+    // CVodeReInit(cvode_mem, T0, y);
+    // iout = 0;
+    // tout = T1;
 
-    printf("\n=== New constants, printing every time step ===\n");
+    // printf("\n=== New constants, printing every time step ===\n");
     while (iout < NOUT) {
       retval = CVode(cvode_mem, tout, y, &t, CV_NORMAL);
       if (retval != CV_SUCCESS) {
@@ -343,8 +343,8 @@ int main(int argc, char* argv[])
       N_VCopyFromDevice_Cuda(y);
       ydata = N_VGetHostArrayPointer_Cuda(y);
       // printf("t = %0.4e\n", t);
-      if (iout % 10 == 0) {
-        for (int gj = 0; gj < ngroups; gj++) {
+      if (iout % 1 == 0) {
+        for (int gj = 20; gj < 21; gj++) {
         printf("  group %2d: ", gj);
         PrintOutput(t,
                     ydata[3*gj + 0],
