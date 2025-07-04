@@ -1,4 +1,4 @@
-SUNDIALS_DIR := /home/qianruw/2025summer/sundials-install
+SUNDIALS_DIR := /usr/local/sundials
 INCLUDE_FLAGS := -I$(SUNDIALS_DIR)/include
 LIBRARY_FLAGS := -L$(SUNDIALS_DIR)/lib64
 
