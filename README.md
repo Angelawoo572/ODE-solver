@@ -51,7 +51,7 @@ This serves as a basic test to ensure your SUNDIALS setup is functioning properl
 
 The general form of the equation solved is:
 
-![LLG Equation](image/path/LLG_equation.png)
+LLG Equation
 
 where parameters like `α` (damping constant) significantly affect system dynamics.
 
@@ -60,10 +60,8 @@ where parameters like `α` (damping constant) significantly affect system dynami
 The results below illustrate the impact of varying the parameter `cha`:
 
 * **Case 1:** `cha = 0` shows oscillatory behavior without damping.
-  ![Oscillation with cha=0](image/path/oscillation_cha0.png)
 
 * **Case 2:** `cha = 1.5` introduces significant damping and results in a distinct elliptical trajectory.
-  ![Damped Oscillation cha=1.5](image/path/oscillation_cha1_5.png)
 
 The visualizations highlight how parameter tuning alters the system's dynamic behaviors and trajectories.
 
