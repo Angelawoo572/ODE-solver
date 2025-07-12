@@ -1,0 +1,29 @@
+K 25
+svn:wc:ra_dav:version-url
+V 26
+/svn/!svn/ver/8/trunk/Code
+END
+cuLsoda_kernel.cu
+K 25
+svn:wc:ra_dav:version-url
+V 44
+/svn/!svn/ver/6/trunk/Code/cuLsoda_kernel.cu
+END
+cuLsoda.cu
+K 25
+svn:wc:ra_dav:version-url
+V 37
+/svn/!svn/ver/8/trunk/Code/cuLsoda.cu
+END
+cuLsoda.cu.h
+K 25
+svn:wc:ra_dav:version-url
+V 39
+/svn/!svn/ver/6/trunk/Code/cuLsoda.cu.h
+END
+main.cu
+K 25
+svn:wc:ra_dav:version-url
+V 34
+/svn/!svn/ver/7/trunk/Code/main.cu
+END
