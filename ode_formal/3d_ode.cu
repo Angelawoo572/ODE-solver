@@ -47,10 +47,10 @@ __constant__ float chb = 0.0f;
 /* user data structure for parallel*/
 typedef struct
 {
-  int ngroups; // number of groups
-  int neq; // number of equations
-  sunrealtype *d_h;
-  sunrealtype *d_mh;
+    int ngroups; // number of groups
+    int neq; // number of equations
+    sunrealtype *d_h;
+    sunrealtype *d_mh;
 } UserData;
 
 /*
@@ -67,51 +67,51 @@ __global__ static void f_kernel(
   sunrealtype* mh,
   int neq)
 {
-  sunindextype i, j, k, tid,iq,ip,ix,iy,iz,imsk;
-  // thread index
-  tid = blockDim.x * blockIdx.x + threadIdx.x;
-  if ( tid > indexbound && tid < blockDim.x - GROUPSIZE){
-    iq = tid - GROUPSIZE; // 前一组位置, -3
-    ip = tid + GROUPSIZE; // 后一组位置, +3
-    ix = tid - (tid) % GROUPSIZE; // ix = 3 * (tid / 3)
-    iy = ix + ONE;
-    iz = iy + ONE;
-    imsk = tid % GROUPSIZE; // tid在3个一组的thread的相对位置 x = 0, y = 1, z = 2
-    /*
-    normalize effective field, vector f
-    che*(y[iq]+y[ip]); exchange interaction
-    msk[imsk]*chk*y[iz]; AnisotropyTrem
-     */
-    h[tid] = che*(y[iq]+y[ip])+msk[imsk]*(chk*y[iz]+cha)+nsk[imsk]*(y[ix+3]+y[ix-3])*chb;
-    // printf("h[%d] = %g\n", tid, che*(y[iq]+y[ip]) + msk[imsk]*chk*y[iz]);
-  }
-  __syncthreads();
-  if ( tid > indexbound && tid < blockDim.x - GROUPSIZE){
-    i = tid - tid % GROUPSIZE; // x
-    j = i + ONE; // y
-    k = j + ONE; // x
-    // m 点乘 f,3个维度 dot product
-    mh[tid]=y[i]*h[i]+y[j]*h[j]+y[k]*h[k];
+    sunindextype i, j, k, tid,iq,ip,ix,iy,iz,imsk;
+    // thread index
+    tid = blockDim.x * blockIdx.x + threadIdx.x;
+    if ( tid > indexbound && tid < blockDim.x - GROUPSIZE){
+      iq = tid - GROUPSIZE; // 前一组位置, -3
+      ip = tid + GROUPSIZE; // 后一组位置, +3
+      ix = tid - (tid) % GROUPSIZE; // ix = 3 * (tid / 3)
+      iy = ix + ONE;
+      iz = iy + ONE;
+      imsk = tid % GROUPSIZE; // tid在3个一组的thread的相对位置 x = 0, y = 1, z = 2
+      /*
+      normalize effective field, vector f
+      che*(y[iq]+y[ip]); exchange interaction
+      msk[imsk]*chk*y[iz]; AnisotropyTrem
+      */
+      h[tid] = che*(y[iq]+y[ip])+msk[imsk]*(chk*y[iz]+cha)+nsk[imsk]*(y[ix+3]+y[ix-3])*chb;
+      // printf("h[%d] = %g\n", tid, che*(y[iq]+y[ip]) + msk[imsk]*chk*y[iz]);
+    }
+    __syncthreads();
+    if ( tid > indexbound && tid < blockDim.x - GROUPSIZE){
+      i = tid - tid % GROUPSIZE; // x
+      j = i + ONE; // y
+      k = j + ONE; // x
+      // m 点乘 f,3个维度 dot product
+      mh[tid]=y[i]*h[i]+y[j]*h[j]+y[k]*h[k];
 
-    // j=tid+(tid+1)%3;
-    int M = (tid+ONE) /GROUPSIZE;
-    int N = (tid + TWO) / GROUPSIZE;
-    j = ( tid - tid % GROUPSIZE) + (tid + ONE) - GROUPSIZE * M;
-    k = (tid - tid % GROUPSIZE) + (tid + TWO) - GROUPSIZE * N;
-    // k=tid+(tid+2)%3;
-    /* 
-    g = alpha * f
-    dm/dtao = m叉乘f 前一部分 cross product
-    y[tid] is m
-    */
-    yd[tid] = chg*(y[k]*h[j] - y[j]*h[k]) + alpha*(h[tid] - mh[tid]*y[tid]);
-  }
-  else
-  {
-    yd[tid] = 0;
-    // printf("DEBUG: entering kernel, neq = %d\n", neq);
-  }
-   __syncthreads();
+      // j=tid+(tid+1)%3;
+      int M = (tid+ONE) /GROUPSIZE;
+      int N = (tid + TWO) / GROUPSIZE;
+      j = ( tid - tid % GROUPSIZE) + (tid + ONE) - GROUPSIZE * M;
+      k = (tid - tid % GROUPSIZE) + (tid + TWO) - GROUPSIZE * N;
+      // k=tid+(tid+2)%3;
+      /* 
+      g = alpha * f
+      dm/dtao = m叉乘f 前一部分 cross product
+      y[tid] is m
+      */
+      yd[tid] = chg*(y[k]*h[j] - y[j]*h[k]) + alpha*(h[tid] - mh[tid]*y[tid]);
+    }
+    else
+    {
+      yd[tid] = 0;
+      // printf("DEBUG: entering kernel, neq = %d\n", neq);
+    }
+    __syncthreads();
 }
 
 /* Right hand side function. This just launches the CUDA kernel
@@ -161,13 +161,13 @@ static int f(sunrealtype t, N_Vector y, N_Vector ydot, void* user_data)
 static void PrintOutput(sunrealtype t, sunrealtype y1, sunrealtype y2,
                         sunrealtype y3)
 {
-#if defined(SUNDIALS_EXTENDED_PRECISION)
-  printf("At t = %0.4Le      y =%14.6Le  %14.6Le  %14.6Le\n", t, y1, y2, y3);
-#elif defined(SUNDIALS_DOUBLE_PRECISION)
-  printf("At t = %0.4e      y =%14.6e  %14.6e  %14.6e\n", t, y1, y2, y3);
-#else
-  printf("At t = %0.4e      y =%14.6e  %14.6e  %14.6e\n", t, y1, y2, y3);
-#endif
+    #if defined(SUNDIALS_EXTENDED_PRECISION)
+      printf("At t = %0.4Le      y =%14.6Le  %14.6Le  %14.6Le\n", t, y1, y2, y3);
+    #elif defined(SUNDIALS_DOUBLE_PRECISION)
+      printf("At t = %0.4e      y =%14.6e  %14.6e  %14.6e\n", t, y1, y2, y3);
+    #else
+      printf("At t = %0.4e      y =%14.6e  %14.6e  %14.6e\n", t, y1, y2, y3);
+    #endif
 
   return;
 }
@@ -177,22 +177,21 @@ static void PrintOutput(sunrealtype t, sunrealtype y1, sunrealtype y2,
  */
 static void PrintFinalStats(void* cvode_mem, SUNLinearSolver LS)
 {
-  long int nst, nfe, nsetups, nni, ncfn, netf, nge;
+    long int nst, nfe, nsetups, nni, ncfn, netf, nge;
 
-  CVodeGetNumSteps(cvode_mem, &nst);
-  CVodeGetNumRhsEvals(cvode_mem, &nfe);
-  CVodeGetNumLinSolvSetups(cvode_mem, &nsetups);
-  CVodeGetNumErrTestFails(cvode_mem, &netf);
-  CVodeGetNumNonlinSolvIters(cvode_mem, &nni);
-  CVodeGetNumNonlinSolvConvFails(cvode_mem, &ncfn);
-  CVodeGetNumGEvals(cvode_mem, &nge);
+    CVodeGetNumSteps(cvode_mem, &nst);
+    CVodeGetNumRhsEvals(cvode_mem, &nfe);
+    CVodeGetNumLinSolvSetups(cvode_mem, &nsetups);
+    CVodeGetNumErrTestFails(cvode_mem, &netf);
+    CVodeGetNumNonlinSolvIters(cvode_mem, &nni);
+    CVodeGetNumNonlinSolvConvFails(cvode_mem, &ncfn);
+    CVodeGetNumGEvals(cvode_mem, &nge);
 
-
-  printf("\nFinal Statistics:\n");
-  printf("nst = %-6ld nfe  = %-6ld nsetups = %-6ld", nst, nfe,
-         nsetups);
-  printf("nni = %-6ld ncfn = %-6ld netf = %-6ld    nge = %ld\n", nni, ncfn,
-         netf, nge);
+    printf("\nFinal Statistics:\n");
+    printf("nst = %-6ld nfe  = %-6ld nsetups = %-6ld", nst, nfe,
+          nsetups);
+    printf("nni = %-6ld ncfn = %-6ld netf = %-6ld    nge = %ld\n", nni, ncfn,
+          netf, nge);
 }
 
 /*
@@ -345,12 +344,12 @@ int main(int argc, char* argv[])
       // printf("t = %0.4e\n", t);
       if (iout % 1 == 0) {
         for (int gj = 20; gj < 21; gj++) {
-        printf("  group %2d: ", gj);
-        PrintOutput(t,
-                    ydata[3*gj + 0],
-                    ydata[3*gj + 1],
-                    ydata[3*gj + 2]);
-      }
+          printf("  group %2d: ", gj);
+          PrintOutput(t,
+                      ydata[3*gj + 0],
+                      ydata[3*gj + 1],
+                      ydata[3*gj + 2]);
+        }
       }
 
       iout++;
