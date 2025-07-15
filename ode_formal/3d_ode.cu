@@ -167,18 +167,11 @@ static int f(sunrealtype t, N_Vector y, N_Vector ydot, void* user_data)
  * Private helper functions
  *-------------------------------
  */
-static void PrintOutput(sunrealtype t, sunrealtype y1, sunrealtype y2,
-                        sunrealtype y3)
+static void PrintOutput(sunrealtype t, int i, int j, int nx, sunrealtype* ydata)
 {
-    #if defined(SUNDIALS_EXTENDED_PRECISION)
-      printf("At t = %0.4Le      y =%14.6Le  %14.6Le  %14.6Le\n", t, y1, y2, y3);
-    #elif defined(SUNDIALS_DOUBLE_PRECISION)
-      printf("At t = %0.4e      y =%14.6e  %14.6e  %14.6e\n", t, y1, y2, y3);
-    #else
-      printf("At t = %0.4e      y =%14.6e  %14.6e  %14.6e\n", t, y1, y2, y3);
-    #endif
-
-  return;
+  int idx = 3 * (j * nx + i);
+  printf("At t = %.2f, m[%d,%d] = [%g %g %g]\n", t, i, j,
+         ydata[idx + 0], ydata[idx + 1], ydata[idx + 2]);
 }
 
 /*
@@ -300,9 +293,7 @@ int main(int argc, char* argv[])
       // printf("%f\n",tout);
       N_VCopyFromDevice_Cuda(y);
       ydata = N_VGetHostArrayPointer_Cuda(y);
-      int mid = (ny/2) * nx + (nx/2);
-      printf("t = %.2f, m = [%g %g %g]\n", t,
-              ydata[3*mid+0], ydata[3*mid+1], ydata[3*mid+2]);
+      PrintOutput(t, nx/2, ny/2, nx, ydata);
     }
 
     /* Print final statistics */
