@@ -39,7 +39,7 @@ __constant__ float msk[3]={0.0f,0.0f,1.0f};
 __constant__ float nsk[3]={1.0f,0.0f,0.0f};
 __constant__ float chk=1.0f;
 __constant__ float che =0.0f;
-__constant__ float alpha=0.02f;  // 0.0f
+__constant__ float alpha=0.02f; // 0.0f
 __constant__ float chg = 1.0f; 
 __constant__ float cha = 1.5f; //0.2
 __constant__ float chb = 0.0f;
@@ -47,7 +47,8 @@ __constant__ float chb = 0.0f;
 /* user data structure for parallel*/
 typedef struct
 {
-    int ngroups; // number of groups
+    // int ngroups; // number of groups
+    int nx, ny;
     int neq; // number of equations
     sunrealtype *d_h;
     sunrealtype *d_mh;
@@ -65,53 +66,59 @@ __global__ static void f_kernel(
   sunrealtype* yd, 
   sunrealtype* h,
   sunrealtype* mh,
-  int neq)
+  int nx, 
+  int ny,
+  bool is_red_phase)
 {
-    sunindextype i, j, k, tid,iq,ip,ix,iy,iz,imsk;
-    // thread index
-    tid = blockDim.x * blockIdx.x + threadIdx.x;
-    if ( tid > indexbound && tid < blockDim.x - GROUPSIZE){
-      iq = tid - GROUPSIZE; // 前一组位置, -3
-      ip = tid + GROUPSIZE; // 后一组位置, +3
-      ix = tid - (tid) % GROUPSIZE; // ix = 3 * (tid / 3)
-      iy = ix + ONE;
-      iz = iy + ONE;
-      imsk = tid % GROUPSIZE; // tid在3个一组的thread的相对位置 x = 0, y = 1, z = 2
-      /*
-      normalize effective field, vector f
-      che*(y[iq]+y[ip]); exchange interaction
-      msk[imsk]*chk*y[iz]; AnisotropyTrem
-      */
-      h[tid] = che*(y[iq]+y[ip])+msk[imsk]*(chk*y[iz]+cha)+nsk[imsk]*(y[ix+3]+y[ix-3])*chb;
-      // printf("h[%d] = %g\n", tid, che*(y[iq]+y[ip]) + msk[imsk]*chk*y[iz]);
-    }
-    __syncthreads();
-    if ( tid > indexbound && tid < blockDim.x - GROUPSIZE){
-      i = tid - tid % GROUPSIZE; // x
-      j = i + ONE; // y
-      k = j + ONE; // x
-      // m 点乘 f,3个维度 dot product
-      mh[tid]=y[i]*h[i]+y[j]*h[j]+y[k]*h[k];
+    // compute 2D thread coordinates
+    int ix = blockIdx.x * blockDim.x + threadIdx.x;
+    int iy = blockIdx.y * blockDim.y + threadIdx.y;
+    if (ix >= nx || iy >= ny) return;
 
-      // j=tid+(tid+1)%3;
-      int M = (tid+ONE) /GROUPSIZE;
-      int N = (tid + TWO) / GROUPSIZE;
-      j = ( tid - tid % GROUPSIZE) + (tid + ONE) - GROUPSIZE * M;
-      k = (tid - tid % GROUPSIZE) + (tid + TWO) - GROUPSIZE * N;
-      // k=tid+(tid+2)%3;
-      /* 
-      g = alpha * f
-      dm/dtao = m叉乘f 前一部分 cross product
-      y[tid] is m
-      */
-      yd[tid] = chg*(y[k]*h[j] - y[j]*h[k]) + alpha*(h[tid] - mh[tid]*y[tid]);
-    }
-    else
-    {
-      yd[tid] = 0;
-      // printf("DEBUG: entering kernel, neq = %d\n", neq);
+    // checkerboard partition: red if (i+j) % 2 == 0
+    bool is_red = ((ix+iy)&1) == 0;
+    if (is_red != is_red_phase) return;
+
+    // linear group index and base pointer for 3 components
+    int gid = iy * nx + ix;
+    int base_idx = GROUPSIZE * gid;
+
+    // neighbor group indices
+    int ix_l = (ix > 0) ? ix - 1 : ix;
+    int ix_r = (ix < nx-1) ? ix + 1 : ix;
+    int iy_u = (iy > 0) ? iy - 1 : iy;
+    int iy_d = (iy < ny-1) ? iy + 1 : iy;
+
+    int base_l = GROUPSIZE * (iy * nx + ix_l);
+    int base_r = GROUPSIZE * (iy * nx + ix_r);
+    int base_u = GROUPSIZE * (iy_u * nx + ix);
+    int base_d = GROUPSIZE * (iy_d * nx + ix);
+
+    // compute h vector for each component
+    for (int c = 0; c < GROUPSIZE; ++c) {
+        h[base_idx + c] =
+            che * (y[base_l + c] + y[base_r + c] + y[base_u + c] + y[base_d + c])
+          + msk[c] * (chk * y[base_idx + 2] + cha)
+          + nsk[c] * (y[base_r + c] + y[base_l + c]) * chb;
     }
     __syncthreads();
+    // Dot product m*h for this group
+    sunrealtype dot = 
+        y[base_idx + 0] * h[base_idx + 0] +
+        y[base_idx + 1] * h[base_idx + 1] +
+        y[base_idx + 2] * h[base_idx + 2];
+    mh[base_idx + 0] = dot;
+    mh[base_idx + 1] = dot;
+    mh[base_idx + 2] = dot;
+    __syncthreads();
+    yd[base_idx + 0] = chg * (y[base_idx + 2]*h[base_idx + 1] - y[base_idx + 1]*h[base_idx + 2])
+                      + alpha * (h[base_idx + 0] - dot * y[base_idx + 0]);
+    yd[base_idx + 1] = chg * (y[base_idx + 0]*h[base_idx + 2]
+                             - y[base_idx + 2]*h[base_idx + 0])
+                     + alpha * (h[base_idx + 1] - dot * y[base_idx + 1]);
+    yd[base_idx + 2] = chg * (y[base_idx + 1]*h[base_idx + 0]
+                             - y[base_idx + 0]*h[base_idx + 1])
+                     + alpha * (h[base_idx + 2] - dot * y[base_idx + 2]);
 }
 
 /* Right hand side function. This just launches the CUDA kernel
@@ -128,19 +135,21 @@ static int f(sunrealtype t, N_Vector y, N_Vector ydot, void* user_data)
     ydata    = N_VGetDeviceArrayPointer_Cuda(y);
     ydotdata = N_VGetDeviceArrayPointer_Cuda(ydot);
 
-    unsigned block_size = GROUPSIZE * 32;
-    // total threads = grid_size * block_size
-    // grid_size is ceil - (a+b-1)/b
-    unsigned grid_size  = 1; // 1 (udata->neq + block_size - 1) / block_size
-    f_kernel<<<grid_size, block_size>>>(ydata, ydotdata,udata->d_h,
-      udata->d_mh, udata->neq);
+    int nx = udata->nx, ny = udata->ny;
+    dim3 block(16, 16);
+    dim3 grid((nx + block.x - 1)/block.x, (ny + block.y - 1)/block.y);
 
+    // Red phase
+    f_kernel<<<grid, block>>>(ydata, ydotdata,
+                                 udata->d_h, udata->d_mh,
+                                 nx, ny, true);
     cudaDeviceSynchronize();
 
-    //debug
-    // sunrealtype h_ydot[9];
-    // cudaMemcpy(h_ydot, ydotdata + 3, 3 * sizeof(sunrealtype), cudaMemcpyDeviceToHost);
-    // printf("ydot sample (group 1): %f %f %f\n", h_ydot[0], h_ydot[1], h_ydot[2]);
+    // Blue phase
+    f_kernel<<<grid, block>>>(ydata, ydotdata,
+                                 udata->d_h, udata->d_mh,
+                                 nx, ny, false);
+    cudaDeviceSynchronize();
     
     cudaError_t cuerr = cudaGetLastError();
     if (cuerr != cudaSuccess)
@@ -214,11 +223,12 @@ int main(int argc, char* argv[])
     UserData udata;
 
     /* Parse command-line to get number of groups */
-    ngroups = 32;
-    neq     = ngroups * GROUPSIZE;
+    int nx = 128, ny = 128; 
+    neq     = nx * ny * 3;
 
     /* Fill user data */
-    udata.ngroups = ngroups;
+    udata.nx  = nx;
+    udata.ny  = ny;
     udata.neq     = neq;
     cudaMalloc(&udata.d_h,  neq * sizeof(sunrealtype));
     cudaMalloc(&udata.d_mh, neq * sizeof(sunrealtype));
@@ -234,45 +244,23 @@ int main(int argc, char* argv[])
     abstol_data = N_VGetHostArrayPointer_Cuda(abstol);
 
     /* Initialize y and abstol on host then copy to device */
-    int nspin = ngroups; //32
-    int ix, iy, iz;
+    for (int j = 0; j < ny; ++j) {
+      for (int i = 0; i < nx; ++i) {
+        int idx = 3 * (j * nx + i);
+        if (j < ny / 2) {
+          ydata[idx + 0] = 0.0;
+          ydata[idx + 1] = 0.0175;
+          ydata[idx + 2] = 0.998;
+        } else {
+          ydata[idx + 0] = 0.0;
+          ydata[idx + 1] = 0.0175;
+          ydata[idx + 2] = -0.998;
+        }
 
-    for(int i = 0;i < nspin;i++)
-    {
-	    ix=3*i;
-	    iy=ix+1;
-	    iz=iy+1;
-
-	    if(i==0)
-	    {
-		    ydata[ix]=0.0;
-		    ydata[iy]=0.0;
-		    ydata[iz]=1.0;
-	    }
-	    else if(i == nspin-1)
-	    {
-		    ydata[ix]=0.0;
-		    ydata[iy]=0.0;
-		    ydata[iz]=-1;;
-	    }
-	    else if(i < nspin/2)
-	    {
-		    ydata[ix]=0.0;
-		    ydata[iy]=0.0175;
-		    ydata[iz]=0.998;
-	    }
-	    else
-	    {
-		    ydata[ix]=0.0;
-		    ydata[iy]=0.0175;
-		    ydata[iz]=-0.998;
+        abstol_data[idx + 0] = ATOL1;
+        abstol_data[idx + 1] = ATOL2;
+        abstol_data[idx + 2] = ATOL3;
       }
-    }
-
-    for (int i = 0; i < neq; i += 3) {
-        abstol_data[i]   = ATOL1;
-        abstol_data[i+1] = ATOL2;
-        abstol_data[i+2] = ATOL3;
     }
     N_VCopyToDevice_Cuda(y);
     N_VCopyToDevice_Cuda(abstol);
@@ -291,7 +279,7 @@ int main(int argc, char* argv[])
 
     /* Print header */
     printf("\nGroup of independent 3-species kinetics problems\n\n");
-    printf("number of groups = %d\n\n", ngroups);
+    printf("number of groups = %d\n\n", nx, ny, nx * ny);
 
     /* Time-stepping loop */
     float ttotal=500.0f;
@@ -310,50 +298,11 @@ int main(int argc, char* argv[])
         break;
       }
       // printf("%f\n",tout);
-    }
-    N_VCopyFromDevice_Cuda(y);
-    ydata = N_VGetHostArrayPointer_Cuda(y);
-    printf("\n=== Old constants final t ===\n");
-    for (groupj = 0; groupj < ngroups; groupj ++) {
-      printf("group %d: ", groupj);
-      PrintOutput(t,ydata[GROUPSIZE * groupj],
-                    ydata[1 + GROUPSIZE * groupj],
-                    ydata[2 + GROUPSIZE * groupj]);
-    }
-
-    // 把 host 端新值拷到 GPU constant memory
-    float host_cha   = -0.6f;
-    float host_alpha = 0.0f;
-    cudaMemcpyToSymbol(cha,   &host_cha,   sizeof(float));
-    // cudaMemcpyToSymbol(alpha, &host_alpha, sizeof(float));
-    CVodeReInit(cvode_mem, T0, y);
-    iout = 0;
-    tout = T1;
-
-    printf("\n=== New constants, printing every time step ===\n");
-    while (iout < NOUT) {
-      retval = CVode(cvode_mem, tout, y, &t, CV_NORMAL);
-      if (retval != CV_SUCCESS) {
-        fprintf(stderr, "CVode error at step %d: %d\n", iout, retval);
-        break;
-      }
-
-      // 每一步都把解拷回，并打印所有 group
       N_VCopyFromDevice_Cuda(y);
       ydata = N_VGetHostArrayPointer_Cuda(y);
-      // printf("t = %0.4e\n", t);
-      if (iout % 1 == 0) {
-        for (int gj = 20; gj < 21; gj++) {
-          printf("  group %2d: ", gj);
-          PrintOutput(t,
-                      ydata[3*gj + 0],
-                      ydata[3*gj + 1],
-                      ydata[3*gj + 2]);
-        }
-      }
-
-      iout++;
-      tout += T1;
+      int mid = (ny/2) * nx + (nx/2);
+      printf("t = %.2f, m = [%g %g %g]\n", t,
+              ydata[3*mid+0], ydata[3*mid+1], ydata[3*mid+2]);
     }
 
     /* Print final statistics */
