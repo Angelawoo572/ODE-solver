@@ -67,21 +67,16 @@ __global__ static void f_kernel(
   sunrealtype* h,
   sunrealtype* mh,
   int nx, 
-  int ny)
+  int ny,
+  bool is_red_phase)
 {
-    // compute blocks in every row
-    int blocks_x = (nx + blockDim.x - 1) / blockDim.x;
-    // blockIdx.x decides phase 0 = red, 1 = blue
-    int phase = blockIdx.x / blocks_x;
-    int bx = blockIdx.x % blocks_x;
     // compute 2D thread coordinates
-    int ix = bx * blockDim.x + threadIdx.x;
+    int ix = blockIdx.x * blockDim.x + threadIdx.x;
     int iy = blockIdx.y * blockDim.y + threadIdx.y;
     if (ix >= nx || iy >= ny) return;
 
     // checkerboard partition: red if (i+j) % 2 == 0
-    bool is_red = (((ix+iy)&1) == 0);
-    bool is_red_phase = (phase == 0);
+    bool is_red = ((ix+iy)&1) == 0;
     if (is_red != is_red_phase) return;
 
     // linear group index and base pointer for 3 components
@@ -135,13 +130,18 @@ static int f(sunrealtype t, N_Vector y, N_Vector ydot, void* user_data)
 
     int nx = udata->nx, ny = udata->ny;
     dim3 block(16, 16);
-    int blocks_x = (nx + block.x - 1) / block.x;
-    int blocks_y = (ny + block.y - 1) / block.y;
-    dim3 grid(2 * blocks_x, blocks_y);
+    dim3 grid((nx + block.x - 1)/block.x, (ny + block.y - 1)/block.y);
 
+    // Red phase
     f_kernel<<<grid, block>>>(ydata, ydotdata,
                                  udata->d_h, udata->d_mh,
-                                 nx, ny);
+                                 nx, ny, true);
+    cudaDeviceSynchronize();
+
+    // Blue phase
+    f_kernel<<<grid, block>>>(ydata, ydotdata,
+                                 udata->d_h, udata->d_mh,
+                                 nx, ny, false);
     cudaDeviceSynchronize();
     
     cudaError_t cuerr = cudaGetLastError();
