@@ -94,31 +94,24 @@ __global__ static void f_kernel(
     int base_u = GROUPSIZE * (iy_u * nx + ix);
     int base_d = GROUPSIZE * (iy_d * nx + ix);
 
+    sunrealtype hx[3];
     // compute h vector for each component
     for (int c = 0; c < GROUPSIZE; ++c) {
-        h[base_idx + c] =
+        hx[c] =
             che * (y[base_l + c] + y[base_r + c] + y[base_u + c] + y[base_d + c])
           + msk[c] * (chk * y[base_idx + 2] + cha)
           + nsk[c] * (y[base_r + c] + y[base_l + c]) * chb;
+        h[base_idx + c] = hx[c]; // store back
     }
-    __syncthreads();
     // Dot product m*h for this group
-    sunrealtype dot = 
-        y[base_idx + 0] * h[base_idx + 0] +
-        y[base_idx + 1] * h[base_idx + 1] +
-        y[base_idx + 2] * h[base_idx + 2];
+    sunrealtype m0 = y[base_idx + 0], m1 = y[base_idx + 1], m2 = y[base_idx + 2];
+    sunrealtype dot = m0 * hx[0] + m1 * hx[1] + m2 * hx[2];
     mh[base_idx + 0] = dot;
     mh[base_idx + 1] = dot;
     mh[base_idx + 2] = dot;
-    __syncthreads();
-    yd[base_idx + 0] = chg * (y[base_idx + 2]*h[base_idx + 1] - y[base_idx + 1]*h[base_idx + 2])
-                      + alpha * (h[base_idx + 0] - dot * y[base_idx + 0]);
-    yd[base_idx + 1] = chg * (y[base_idx + 0]*h[base_idx + 2]
-                             - y[base_idx + 2]*h[base_idx + 0])
-                     + alpha * (h[base_idx + 1] - dot * y[base_idx + 1]);
-    yd[base_idx + 2] = chg * (y[base_idx + 1]*h[base_idx + 0]
-                             - y[base_idx + 0]*h[base_idx + 1])
-                     + alpha * (h[base_idx + 2] - dot * y[base_idx + 2]);
+    yd[base_idx + 0] = chg * (m2 * hx[1] - m1 * hx[2]) + alpha * (hx[0] - dot * m0);
+    yd[base_idx + 1] = chg * (m0 * hx[2] - m2 * hx[0]) + alpha * (hx[1] - dot * m1);
+    yd[base_idx + 2] = chg * (m1 * hx[0] - m0 * hx[1]) + alpha * (hx[2] - dot * m2);
 }
 
 /* Right hand side function. This just launches the CUDA kernel
