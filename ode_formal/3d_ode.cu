@@ -153,14 +153,14 @@ static int f(sunrealtype t, N_Vector y, N_Vector ydot, void* user_data)
 
    int nx = udata->nx, ny = udata->ny;
 
-   int dimx = 32 ;
+   int dimx = 30 ;
    int dimy = 32 ;
-   dim3 block(32, 32);
+   dim3 block(dimx, dimy);
    int blocks_x = (nx + block.x - 1) / block.x;
    int blocks_y = (ny + block.y - 1) / block.y;
    dim3 grid(blocks_x, blocks_y);
 
-   printf("grid: %d %d\n",grid.x, grid.y);
+   printf("grid: %d %d\n",blocks_x, blocks_y);
    printf("block: %d %d\n",block.x, block.y);
 
    f_kernel<<<grid, block>>>(ydata, ydotdata, udata->d_h, udata->d_mh, nx, ny);
@@ -239,7 +239,7 @@ int main(int argc, char* argv[])
 
 
    /* Parse command-line to get number of groups */
-   int nx = 32 , ny = 32;
+   int nx = 30720 , ny = 1024;
    neq     = nx * ny ;
 
    /* Fill user data */
@@ -289,7 +289,6 @@ int main(int argc, char* argv[])
     }
    }
 
-   printf("I am here \n");
 
    N_VCopyToDevice_Cuda(y);
    N_VCopyToDevice_Cuda(abstol);
