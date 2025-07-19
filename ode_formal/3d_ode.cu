@@ -71,15 +71,16 @@ __global__ static void f_kernel(const sunrealtype *y, sunrealtype *yd,
 
   tid = iy * nx + ix;
 
-  if ((ix > 2 && ix < nx - 3) && (iy > 0 && iy < ny - 1)) {
-    mx = tid - tid % 3;
+  if ((ix > indexbound && ix < nx - GROUPSIZE) && (iy > 0 && iy < ny - 1)) {
+    // ny - 1 since do not want the last row
+    mx = tid - tid % GROUPSIZE;
     my = mx + 1;
     mz = my + 1;
 
-    imsk = tid % 3;
+    imsk = tid % GROUPSIZE;
 
-    mxq = tid - 3;
-    mxp = tid + 3;
+    mxq = tid - GROUPSIZE;
+    mxp = tid + GROUPSIZE;
     myq = tid - nx;
     myp = tid + nx;
 
@@ -89,17 +90,17 @@ __global__ static void f_kernel(const sunrealtype *y, sunrealtype *yd,
   }
   __syncthreads();
 
-  if ((ix > 0 && ix < (nx - 3)) && (iy > 0 && iy < (ny - 1))) {
-    mx = tid - tid % 3;
+  if ((ix > 0 && ix < (nx - GROUPSIZE)) && (iy > 0 && iy < (ny - 1))) {
+    mx = tid - tid % GROUPSIZE;
     my = mx + 1;
     mz = my + 1;
 
     mh[tid] = y[mx] * h[mx] + y[my] * h[my] + y[mz] * h[mz];
 
-    int mj = (tid + 1) / 3;
-    int nj = (tid + 2) / 3;
-    j = tid - tid % 3 + (tid + 1) - 3 * mj;
-    k = tid - tid % 3 + (tid + 2) - 3 * nj;
+    int mj = (tid + 1) / GROUPSIZE;
+    int nj = (tid + 2) / GROUPSIZE;
+    j = tid - tid % GROUPSIZE + (tid + 1) - GROUPSIZE * mj;
+    k = tid - tid % GROUPSIZE + (tid + 2) - GROUPSIZE * nj;
 
     yd[tid] =
         chg * (y[k] * h[j] - y[j] * h[k]) + alpha * (h[tid] - mh[tid] * y[tid]);
@@ -192,6 +193,8 @@ int main(int argc, char *argv[]) {
   UserData udata;
   int idx;
   int ip, jp, kp;
+  cudaEvent_t start, stop;
+  float elapsedTime;
 
   /* Parse command-line to get number of groups */
   int nx = 150, ny = 64;
@@ -264,6 +267,40 @@ int main(int argc, char *argv[]) {
   iout = T0;
   tout = T1;
   int NOUT = ttotal / T1;
+
+  cudaEventCreate(&start);
+  cudaEventCreate(&stop);
+  cudaEventRecord(start, 0);
+
+  //calculate time
+  while (iout < NOUT) {
+    retval = CVode(cvode_mem, tout, y, &t, CV_NORMAL);
+    // copy solution back to host and print all groups
+    if (retval != CV_SUCCESS) {
+      fprintf(stderr, "CVode error at output %d: retval = %d\n", iout, retval);
+      break;
+    }
+
+    N_VCopyFromDevice_Cuda(y);
+    ydata = N_VGetHostArrayPointer_Cuda(y);
+
+    if (iout % 50 == 0) {
+      for (jp = 0; jp < ny; jp++) {
+        for (ip = 0; ip < nx - 2; ip += 3) {
+          kp = jp * nx + ip;
+        }
+      }
+    }
+
+    iout++;
+    tout += T1;
+  }
+  cudaEventRecord(stop);
+  cudaEventSynchronize(stop);
+  cudaEventElapsedTime(&elapsedTime, start, stop);
+  printf("GPU simulation took %.3f ms\n", elapsedTime);
+
+  // print output
   while (iout < NOUT) {
 
     retval = CVode(cvode_mem, tout, y, &t, CV_NORMAL);
