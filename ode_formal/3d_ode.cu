@@ -45,7 +45,6 @@ __constant__ float chb = 0.3f;
 
 /* user data structure for parallel*/
 typedef struct {
-  // int ngroups; // number of groups
   int nx, ny;
   int neq; // number of equations
   sunrealtype *d_h;
@@ -62,11 +61,7 @@ typedef struct {
 __global__ static void f_kernel(const sunrealtype *y, sunrealtype *yd,
                                 sunrealtype *h, sunrealtype *mh, int nx,
                                 int ny) {
-
-  sunindextype i, j, k, tid, mxq, mxp, myq, myp, mx, my, mz, imsk;
-  // compute blocks in every row
-
-  int blocks_x = (nx + blockDim.x - 1) / blockDim.x;
+  sunindextype j, k, tid, mxq, mxp, myq, myp, mx, my, mz, imsk;
 
   // compute 2D thread coordinates
   int ix = blockIdx.x * blockDim.x + threadIdx.x;
@@ -76,12 +71,7 @@ __global__ static void f_kernel(const sunrealtype *y, sunrealtype *yd,
 
   tid = iy * nx + ix;
 
-  // Boundary elements
-
-  // neighbor group indices
-
   if ((ix > 2 && ix < nx - 3) && (iy > 0 && iy < ny - 1)) {
-
     mx = tid - tid % 3;
     my = mx + 1;
     mz = my + 1;
@@ -160,11 +150,6 @@ static int f(sunrealtype t, N_Vector y, N_Vector ydot, void *user_data) {
  * Private helper functions
  *-------------------------------
  */
-static void PrintOutput(sunrealtype t, int nx, int ny, sunrealtype *ydata) {
-  int nt = nx * ny;
-  for (int idx = 0; idx < nt; idx += 3)
-    printf(" %f %f %f %f \n", t, ydata[idx], ydata[idx + 1], ydata[idx + 2]);
-}
 
 /*
  * Get and print some final statistics
@@ -203,8 +188,7 @@ int main(int argc, char *argv[]) {
   SUNNonlinearSolver NLS;
   void *cvode_mem;  // CVODE integrator memory
   int retval, iout; // return status and output counter
-  int neq, ngroups,
-      groupj; // Problem size: number of equations, groups, and loop index
+  int neq; // Problem size: number of equations, groups, and loop index
   UserData udata;
   int idx;
   int ip, jp, kp;
@@ -212,6 +196,12 @@ int main(int argc, char *argv[]) {
   /* Parse command-line to get number of groups */
   int nx = 150, ny = 64;
   neq = nx * ny;
+
+  FILE *fp = fopen("output.txt", "w");
+  if (fp == NULL) {
+    fprintf(stderr, "Error opening output file.\n");
+    return 1;
+  }
 
   /* Fill user data */
   udata.nx = nx;
@@ -289,13 +279,14 @@ int main(int argc, char *argv[]) {
     ydata = N_VGetHostArrayPointer_Cuda(y);
 
     if (iout % 50 == 0) {
-      printf("%f %d %d \n", t, nx, ny);
+      fprintf(fp,"%f %d %d \n", t, nx, ny);
       for (jp = 0; jp < ny; jp++) {
         for (ip = 0; ip < nx - 2; ip += 3) {
           kp = jp * nx + ip;
-          printf("%f %f %f \n", ydata[kp], ydata[kp + 1], ydata[kp + 2]);
+          fprintf(fp, "%f %f %f\n", ydata[kp], ydata[kp + 1], ydata[kp + 2]);
         }
       }
+      fprintf(fp, "\n");
     }
 
     iout++;
@@ -314,6 +305,7 @@ int main(int argc, char *argv[]) {
   SUNLinSolFree(LS);
   SUNNonlinSolFree(NLS);
   SUNContext_Free(&sunctx);
+  fclose(fp);
 
   return 0;
 }
