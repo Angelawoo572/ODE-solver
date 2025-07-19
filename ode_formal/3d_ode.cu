@@ -285,10 +285,12 @@ int main(int argc, char *argv[]) {
       break;
     }
 
-    N_VCopyFromDevice_Cuda(y);
-    ydata = N_VGetHostArrayPointer_Cuda(y);
+    // N_VCopyFromDevice_Cuda(y);
+    // ydata = N_VGetHostArrayPointer_Cuda(y);
 
     if (iout % 50 == 0) {
+      N_VCopyFromDevice_Cuda(y);
+      ydata = N_VGetHostArrayPointer_Cuda(y);
       fprintf(fp,"%f %d %d \n", t, nx, ny);
       for (jp = 0; jp < ny; jp++) {
         for (ip = 0; ip < nx - 2; ip += 3) {
