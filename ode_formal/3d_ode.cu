@@ -273,33 +273,6 @@ int main(int argc, char *argv[]) {
   cudaEventRecord(start, 0);
 
   //calculate time
-  while (iout < NOUT) {
-    retval = CVode(cvode_mem, tout, y, &t, CV_NORMAL);
-    // copy solution back to host and print all groups
-    if (retval != CV_SUCCESS) {
-      fprintf(stderr, "CVode error at output %d: retval = %d\n", iout, retval);
-      break;
-    }
-
-    N_VCopyFromDevice_Cuda(y);
-    ydata = N_VGetHostArrayPointer_Cuda(y);
-
-    if (iout % 50 == 0) {
-      for (jp = 0; jp < ny; jp++) {
-        for (ip = 0; ip < nx - 2; ip += 3) {
-          kp = jp * nx + ip;
-        }
-      }
-    }
-
-    iout++;
-    tout += T1;
-  }
-  cudaEventRecord(stop);
-  cudaEventSynchronize(stop);
-  cudaEventElapsedTime(&elapsedTime, start, stop);
-  printf("GPU simulation took %.3f ms\n", elapsedTime);
-
   // print output
   while (iout < NOUT) {
 
@@ -329,6 +302,10 @@ int main(int argc, char *argv[]) {
     iout++;
     tout += T1;
   }
+  cudaEventRecord(stop);
+  cudaEventSynchronize(stop);
+  cudaEventElapsedTime(&elapsedTime, start, stop);
+  printf("GPU simulation took %.3f ms\n", elapsedTime);
 
   /* Print final statistics */
   PrintFinalStats(cvode_mem, LS);
