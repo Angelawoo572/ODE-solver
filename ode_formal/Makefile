@@ -4,8 +4,7 @@ LIBRARY_FLAGS := -L$(SUNDIALS_DIR)/lib64
 
 LDLIBS := -lsundials_cvode -lsundials_nveccuda \
           -lsundials_sunlinsolcusolversp -lsundials_sunmatrixcusparse \
-          -lsundials_core -lcusolver -lcusparse -lcudart -lcudadevrt -lm \
-		  -lcufft
+          -lsundials_core -lcusolver -lcusparse -lcudart -lcudadevrt -lm
 
 NVCC := nvcc
 CUDA_ARCH := -arch=sm_89
@@ -24,4 +23,3 @@ run: $(TARGET)
 
 clean:
 	rm -f $(TARGET)
-
