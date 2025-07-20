@@ -4,7 +4,8 @@ LIBRARY_FLAGS := -L$(SUNDIALS_DIR)/lib64
 
 LDLIBS := -lsundials_cvode -lsundials_nveccuda \
           -lsundials_sunlinsolcusolversp -lsundials_sunmatrixcusparse \
-          -lsundials_core -lcusolver -lcusparse -lcudart -lcudadevrt -lm
+          -lsundials_core -lcusolver -lcusparse -lcudart -lcudadevrt -lm \
+		  -lcufft
 
 NVCC := nvcc
 CUDA_ARCH := -arch=sm_89
