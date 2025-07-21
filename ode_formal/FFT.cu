@@ -1,9 +1,3 @@
-/*
- * vector_fft_convolution.cu
- * 单 GPU 使用 CUFFT 对矢量场 M 进行 3x3 核卷积，输出 H = D * M
- * 模仿 NVIDIA 官方 simpleCUFFT 示例风格（但不使用 helper_cuda.h）
- */
-
 #include <cstdio>
 #include <cstdlib>
 #include <cuda_runtime.h>
