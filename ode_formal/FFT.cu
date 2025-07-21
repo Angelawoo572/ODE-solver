@@ -40,7 +40,7 @@ __global__ void complexMulAdd(Complex *H, const Complex *A, const Complex *B, in
     H[idx].y += (ar*bi + ai*br);
   }
 }
-// 逆 FFT 后做 1/(PX*PY) 归一化
+// IFFT 后做 1/(PX*PY) 归一化
 __global__ void normalize(Complex *H, int N, float scale){
   int idx = blockIdx.x*blockDim.x + threadIdx.x;
   if(idx<N){
