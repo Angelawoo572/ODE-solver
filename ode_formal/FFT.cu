@@ -58,12 +58,23 @@ void padAndConvert(const float *in, Complex *out, int wx, int wy) {
             out[i + j * PX].x = in[i + j * wx];
 }
 
+static bool approx(double a, double b, double tol_abs, double tol_rel=0.0) {
+    double diff = std::fabs(a - b);
+    return diff <= tol_abs || diff <= tol_rel * std::fabs(b);
+}
+
+static void require(bool cond, const char* what, int &fails) {
+    if (!cond) { fprintf(stderr, "FAIL: %s\n", what); ++fails; }
+    else       { printf("PASS: %s\n", what); }
+}
+
 int main() {
-    float *h_Mx = (float*)malloc(NX * NY * sizeof(float));
-    float *h_My = (float*)malloc(NX * NY * sizeof(float));
-    float *h_Mz = (float*)malloc(NX * NY * sizeof(float));
+    const int MN = NX*NY, KN = KX*KY;
+    float *h_Mx = (float*)malloc(MN * sizeof(float));
+    float *h_My = (float*)malloc(MN * sizeof(float));
+    float *h_Mz = (float*)malloc(MN * sizeof(float));
     float *h_D[9];
-    for (int i = 0; i < 9; i++) h_D[i] = (float*)malloc(KX * KY * sizeof(float));
+    for (int i = 0; i < 9; i++) h_D[i] = (float*)malloc(KN * sizeof(float));
 
     for (int j = 0; j < NY; j++)
         for (int i = 0; i < NX; i++) {
@@ -144,10 +155,44 @@ int main() {
     CUDA_CALL(cudaMemcpy(h_Hy, d_Hy, SIZE * sizeof(Complex), cudaMemcpyDeviceToHost));
     CUDA_CALL(cudaMemcpy(h_Hz, d_Hz, SIZE * sizeof(Complex), cudaMemcpyDeviceToHost));
 
+    // int cx = (PX/2) + (PY/2)*PX;
+    // printf("Hx(中心) = %f\n", h_Hx[cx].x);
+    // printf("Hy(中心) = %f\n", h_Hy[cx].x);
+    // printf("Hz(中心) = %f\n", h_Hz[cx].x);
+
+    // ----- Tests -----
+    int fails = 0;
+    const double EPS = 1e-3;
+
+    // 1) Center/plateau value ≈ 64*64
     int cx = (PX/2) + (PY/2)*PX;
-    printf("Hx(中心) = %f\n", h_Hx[cx].x);
-    printf("Hy(中心) = %f\n", h_Hy[cx].x);
-    printf("Hz(中心) = %f\n", h_Hz[cx].x);
+    double center = h_Hx[cx].x;
+    printf("Hx(center) = %.6f\n", center);
+    require(approx(center, 64.0*64.0, 1e-2, 1e-6), "Hx center ≈ 4096", fails);
+
+    // 2) Imag parts small everywhere, and Hy/Hz near zero
+    double max_real_Hx = 0, max_im_Hx=0, max_abs_Hy=0, max_abs_Hz=0;
+    for (int i=0;i<SIZE;i++) {
+        max_real_Hx = fmax(max_real_Hx, fabs((double)h_Hx[i].x));
+        max_im_Hx = fmax(max_im_Hx, std::fabs(h_Hx[i].y));
+        max_abs_Hy = fmax(max_abs_Hy, std::fabs(h_Hy[i].x));
+        max_abs_Hz = fmax(max_abs_Hz, std::fabs(h_Hz[i].x));
+    }
+    double rel_im = (max_real_Hx > 0) ? max_im_Hx / max_real_Hx : 0.0;
+    require(rel_im < 1e-6, "Imag(Hx) small (relative)", fails);
+
+    // 3) Sum(Hx) ≈ 16384 * 4096
+    long double sumHx = 0.0L;
+    for (int i=0;i<SIZE;i++) sumHx += (long double)h_Hx[i].x;
+    long double expectedSum = (long double)(NX*NY) * (long double)(KX*KY); // 67108864
+    printf("sum(Hx) = %.0Lf (expected %.0Lf)\n", sumHx, expectedSum);
+    require(fabsl(sumHx - expectedSum) <= 1e-2L * expectedSum, "Sum(Hx) conservation", fails);
+
+    if (fails == 0) {
+        printf("ALL TESTS PASSED\n");
+    } else {
+        printf("%d TEST(S) FAILED\n", fails);
+    }
 
     CUFFT_CALL(cufftDestroy(plan));
     cudaFree(d_Mx); cudaFree(d_My); cudaFree(d_Mz);
@@ -157,6 +202,5 @@ int main() {
     free(h_Hx); free(h_Hy); free(h_Hz);
     free(h_Mx_p); free(h_My_p); free(h_Mz_p);
     for (int i = 0; i < 9; i++) { free(h_D[i]); free(h_D_p[i]); }
-    return 0;
+    return (fails==0) ? 0 : 1;
 }
-
